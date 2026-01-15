@@ -144,15 +144,10 @@ const App: React.FC = () => {
   };
 
   const getApiUrl = (endpoint: string) => {
-    // If running locally, prefer the local Express server on port 5000
-    // If running in production (Vercel), use the relative path which hits the serverless function
-    if (
-      typeof window !== "undefined" &&
-      window.location.hostname === "localhost"
-    ) {
-      return `http://localhost:5000${endpoint}`;
-    }
-    return endpoint;
+    // If VITE_API_BASE_URL is set (e.g. for Render backend), use it.
+    // Otherwise, default to relative path for Vercel Serverless functions.
+    const baseUrl = import.meta.env.VITE_API_BASE_URL || "";
+    return `${baseUrl}${endpoint}`;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -179,13 +174,7 @@ const App: React.FC = () => {
       processGrades(data as Grade[]);
     } catch (err: any) {
       console.error(err);
-      let msg = err.message || "Could not connect to backend server.";
-      if (
-        msg.includes("Failed to fetch") &&
-        window.location.hostname === "localhost"
-      ) {
-        msg = "Local server not found. Run 'npm run server' in a terminal.";
-      }
+      const msg = err.message || "Could not connect to backend server.";
       setErrorMessage(msg);
       setStatus(AppStatus.ERROR);
       setIsModalOpen(false);

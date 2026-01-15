@@ -65,7 +65,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       ],
       defaultViewport: { width: 1920, height: 1080 },
       executablePath: await chromium.executablePath(),
-      headless: true,
+      headless: (chromium as any).headless,
       ignoreHTTPSErrors: true,
     } as any);
 
