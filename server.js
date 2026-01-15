@@ -1,5 +1,5 @@
 import express from "express";
-import { Builder, By, until, Select } from "selenium-webdriver";
+import { Builder, By, until, Select, Key } from "selenium-webdriver";
 import chrome from "selenium-webdriver/chrome.js";
 import cors from "cors";
 
@@ -21,6 +21,12 @@ app.get("/api/health", (req, res) => {
     .status(200)
     .json({ status: "ok", platform: "Railway", timestamp: Date.now() });
 });
+
+// Helper for random delays (Human-like behavior)
+const randomDelay = (min, max) =>
+  new Promise((resolve) =>
+    setTimeout(resolve, Math.floor(Math.random() * (max - min + 1) + min))
+  );
 
 // Helper to determine grade equivalent
 const getEquivalent = (grade) => {
@@ -64,18 +70,21 @@ app.post("/api/scrape", async (req, res) => {
 
   // --- STEALTH & EVASION CONFIGURATION ---
 
-  // 1. Basic Headless Mode (New architecture is more stealthy)
+  // 1. Basic Headless Mode
   options.addArguments("--headless=new");
 
-  // 2. Critical: Disable the "AutomationControlled" feature which sets navigator.webdriver = true
+  // 2. Critical: Disable the "AutomationControlled" feature
   options.addArguments("--disable-blink-features=AutomationControlled");
 
-  // 3. Spoof User Agent to look like a real Desktop Chrome browser
+  // 3. Spoof User Agent (Recent Chrome on Windows 10)
   options.addArguments(
-    "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+    "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
   );
 
-  // 4. Standard container/stability flags
+  // 4. Set Language to English (helps with some firewalls)
+  options.addArguments("--lang=en-US");
+
+  // 5. Standard container/stability flags
   options.addArguments("--no-sandbox");
   options.addArguments("--disable-dev-shm-usage");
   options.addArguments("--disable-gpu");
@@ -83,18 +92,18 @@ app.post("/api/scrape", async (req, res) => {
   options.addArguments("--start-maximized");
   options.addArguments("--disable-infobars");
 
-  // 5. Exclude the "Enable Automation" switch to hide the "Chrome is being controlled..." bar
+  // 6. Exclude automation switches
   options.excludeSwitches("enable-automation");
 
-  // 6. Turn off automation extension
+  // 7. Turn off automation extension
   options.setUserPreferences({
     credentials_enable_service: false,
     "profile.password_manager_enabled": false,
     useAutomationExtension: false,
     excludeSwitches: ["enable-automation"],
+    "intl.accept_languages": "en-US,en",
   });
 
-  // In some environments, you must explicitly point to the Chrome binary
   if (process.env.CHROME_BIN) {
     options.setBinaryPath(process.env.CHROME_BIN);
   }
@@ -107,47 +116,87 @@ app.post("/api/scrape", async (req, res) => {
       .setChromeOptions(options)
       .build();
 
-    // 7. Extra Measure: Manually delete navigator.webdriver via CDP command (if possible) or Script
-    // Doing this before loading the target page helps in some older driver versions
+    // 8. Extra Measure: Manually delete navigator.webdriver
     try {
       await driver.executeScript(
         "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
       );
     } catch (e) {
-      // Ignore if this fails, the flag above handles it mostly
+      // Ignore
     }
 
-    // 1. Authentication
+    // --- PHASE 1: WARM UP ---
+    // Visit the base domain first to establish a session without triggering login protection immediately
+    const BASE_URL = "https://systems.bicol-u.edu.ph/";
+    await driver.get(BASE_URL);
+    console.log(`[Link Log] Warm-up access: ${await driver.getCurrentUrl()}`);
+
+    // Human-like pause (1-2 seconds)
+    await randomDelay(1000, 2000);
+
+    // --- PHASE 2: LOGIN ACCESS ---
     const LOGIN_URL = "https://systems.bicol-u.edu.ph/ibu-beta/login";
     await driver.get(LOGIN_URL);
-    console.log(
-      `[Link Log] Accessed Login Page: ${await driver.getCurrentUrl()}`
-    );
+
+    let currentUrl = await driver.getCurrentUrl();
+    console.log(`[Link Log] Accessed Login Page: ${currentUrl}`);
+
+    // Check for CAPTCHA immediately upon loading login page
+    if (currentUrl.includes("captcha") || currentUrl.includes(".well-known")) {
+      throw new Error("CAPTCHA_DETECTED");
+    }
 
     const idInput = await driver.wait(
       until.elementLocated(By.id("student-id-1")),
-      20000
+      10000
     );
+
+    // Simulate human typing speed for ID
     await idInput.sendKeys(studentId);
-    await driver.findElement(By.id("student-password-1")).sendKeys(password);
+    await randomDelay(300, 700);
+
+    // Simulate human typing speed for Password
+    const passInput = await driver.findElement(By.id("student-password-1"));
+    await passInput.sendKeys(password);
+    await randomDelay(500, 1000);
 
     const submitBtn = await driver.findElement(By.id("submit"));
+    // Use JS click as it's more reliable, but after a small delay
     await driver.executeScript("arguments[0].click();", submitBtn);
 
-    // Wait for login success
-    await driver.wait(until.urlContains("ibu-beta"), 20000);
-    console.log(
-      `[Link Log] Post-Login URL (Dashboard): ${await driver.getCurrentUrl()}`
-    );
+    // --- PHASE 3: VERIFICATION ---
+    // Wait for login success or failure or captcha redirect
+    try {
+      // We wait for either the dashboard URL OR the captcha URL
+      await driver.wait(async () => {
+        const url = await driver.getCurrentUrl();
+        return (
+          url.includes("ibu-beta") ||
+          url.includes("captcha") ||
+          url.includes(".well-known")
+        );
+      }, 20000);
+    } catch (e) {
+      // Timeout waiting for redirect
+    }
 
-    // 2. Navigation
+    currentUrl = await driver.getCurrentUrl();
+    console.log(`[Link Log] Post-Login URL: ${currentUrl}`);
+
+    if (currentUrl.includes("captcha") || currentUrl.includes(".well-known")) {
+      throw new Error("CAPTCHA_DETECTED");
+    }
+
+    // --- PHASE 4: GRADES ACCESS ---
+    // Direct navigation is safer than clicking UI buttons which might have analytics events
     const GRADES_URL = "https://systems.bicol-u.edu.ph/ibu-beta/grades";
     await driver.get(GRADES_URL);
     console.log(
       `[Link Log] Accessed Grades Page: ${await driver.getCurrentUrl()}`
     );
+    await randomDelay(500, 1500);
 
-    // 3. Scrape Grades
+    // --- PHASE 5: SCRAPING ---
     const dropdown = await driver.wait(
       until.elementLocated(By.id("semesters")),
       20000
@@ -168,7 +217,6 @@ app.post("/api/scrape", async (req, res) => {
     }
 
     // ARRANGE: Smallest to Largest (Oldest to Newest)
-    // Drodown is typically Newest-to-Oldest, so we reverse it
     const chronologicalOrder = validOptions.reverse();
     const finalResults = [];
 
@@ -177,11 +225,18 @@ app.post("/api/scrape", async (req, res) => {
       const currentSelect = new Select(currentSelectElement);
       await currentSelect.selectByValue(opt.value);
 
-      // Wait for table to update (Check that at least one row exists)
-      await driver.wait(async () => {
-        const rows = await driver.findElements(By.css("table tbody tr"));
-        return rows.length > 0;
-      }, 10000);
+      // Wait for table to update
+      try {
+        await driver.wait(async () => {
+          const rows = await driver.findElements(By.css("table tbody tr"));
+          return rows.length > 0;
+        }, 8000);
+      } catch (e) {
+        console.log(
+          `[Scraper] Timeout waiting for semester ${opt.text}, skipping...`
+        );
+        continue;
+      }
 
       const rows = await driver.findElements(By.css("table tbody tr"));
       for (const row of rows) {
@@ -204,22 +259,31 @@ app.post("/api/scrape", async (req, res) => {
           }
         }
       }
+      // Small pause between semesters to be nice to the server
+      await randomDelay(200, 500);
     }
 
     console.log(`[Scraper] Success! Found ${finalResults.length} grades.`);
     res.json(finalResults);
   } catch (error) {
-    console.error("[Scraper] Error:", error.message);
-
-    // Attempt to log the URL where the error occurred
+    let currentUrl = "unknown";
     if (driver) {
       try {
-        console.log(
-          `[Link Log] Error occurred at: ${await driver.getCurrentUrl()}`
-        );
-      } catch (e) {
-        console.log("[Link Log] Could not retrieve URL during error.");
-      }
+        currentUrl = await driver.getCurrentUrl();
+      } catch (e) {}
+    }
+
+    console.error(`[Scraper] Error: ${error.message} at ${currentUrl}`);
+
+    if (
+      error.message === "CAPTCHA_DETECTED" ||
+      currentUrl.includes("captcha") ||
+      currentUrl.includes(".well-known")
+    ) {
+      return res.status(403).json({
+        error:
+          "Security Check Triggered. The university portal has blocked this cloud server IP. Please try again later or access the portal directly.",
+      });
     }
 
     res.status(500).json({
