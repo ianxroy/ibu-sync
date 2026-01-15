@@ -32,6 +32,10 @@
   ],
   "rewrites": [
     {
+      "source": "/ibu-sync/(.*)",
+      "destination": "/$1"
+    },
+    {
       "source": "/api/(.*)",
       "destination": "/api/$1"
     },

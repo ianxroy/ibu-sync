@@ -20,7 +20,9 @@ app.use(cors());
 app.use(express.json());
 
 // Serve static files from the build directory
+// Support both root access and sub-path access for consistency
 app.use(express.static(path.join(__dirname, "dist")));
+app.use("/ibu-sync", express.static(path.join(__dirname, "dist")));
 
 app.get("/api/health", (req, res) => {
   res
