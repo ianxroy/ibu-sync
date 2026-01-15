@@ -1,5 +1,5 @@
 import express from "express";
-import { Builder, By, until, Select, Key } from "selenium-webdriver";
+import { Builder, By, until, Select } from "selenium-webdriver";
 import chrome from "selenium-webdriver/chrome.js";
 import cors from "cors";
 
@@ -8,27 +8,23 @@ import cors from "cors";
  * 1. Student credentials (ID and Password) are used only for the active session.
  * 2. This server does not store, log, or share any personal information or grades.
  * 3. All data is processed in-memory and discarded immediately after the response is sent.
- * 4. Users are advised to use this service over secure networks only.
  */
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// 0. Health Check Endpoint (Required for Frontend Latency Check)
 app.get("/api/health", (req, res) => {
   res
     .status(200)
     .json({ status: "ok", platform: "Railway", timestamp: Date.now() });
 });
 
-// Helper for random delays (Human-like behavior)
 const randomDelay = (min, max) =>
   new Promise((resolve) =>
     setTimeout(resolve, Math.floor(Math.random() * (max - min + 1) + min))
   );
 
-// Helper to determine grade equivalent
 const getEquivalent = (grade) => {
   const map = {
     "1.0": "99-100",
@@ -57,56 +53,52 @@ const getEquivalent = (grade) => {
   return map[grade] || "N/A";
 };
 
+// --- ROBUST STEALTH INJECTION SCRIPT ---
+// This runs before the page loads to scrub automation traces
+const STEALTH_INJECTION = `
+  Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+  Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+  Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+  window.chrome = { runtime: {} };
+  const originalQuery = window.navigator.permissions.query;
+  window.navigator.permissions.query = (parameters) => (
+    parameters.name === 'notifications' ?
+      Promise.resolve({ state: 'granted' }) :
+      originalQuery(parameters)
+  );
+`;
+
 app.post("/api/scrape", async (req, res) => {
   const { studentId, password } = req.body;
-
-  if (!studentId || !password) {
+  if (!studentId || !password)
     return res.status(400).json({ error: "Missing credentials" });
-  }
 
   console.log(`[Scraper] Starting sync for ${studentId}...`);
 
   const options = new chrome.Options();
 
-  // --- STEALTH & EVASION CONFIGURATION ---
-
-  // 1. Basic Headless Mode
+  // Minimal flags - sometimes LESS is MORE for stealth
   options.addArguments("--headless=new");
-
-  // 2. Critical: Disable the "AutomationControlled" feature
   options.addArguments("--disable-blink-features=AutomationControlled");
+  options.addArguments("--no-sandbox");
+  options.addArguments("--disable-dev-shm-usage");
+  options.addArguments("--disable-gpu");
+  options.addArguments("--window-size=1366,768"); // Common laptop resolution
+  options.addArguments("--start-maximized");
 
-  // 3. Spoof User Agent (Recent Chrome on Windows 10)
+  // Real User Agent (Windows 10 Chrome 122)
   options.addArguments(
     "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
   );
 
-  // 4. Set Language to English (helps with some firewalls)
-  options.addArguments("--lang=en-US");
-
-  // 5. Standard container/stability flags
-  options.addArguments("--no-sandbox");
-  options.addArguments("--disable-dev-shm-usage");
-  options.addArguments("--disable-gpu");
-  options.addArguments("--window-size=1920,1080");
-  options.addArguments("--start-maximized");
-  options.addArguments("--disable-infobars");
-
-  // 6. Exclude automation switches
   options.excludeSwitches("enable-automation");
-
-  // 7. Turn off automation extension
   options.setUserPreferences({
     credentials_enable_service: false,
     "profile.password_manager_enabled": false,
     useAutomationExtension: false,
-    excludeSwitches: ["enable-automation"],
-    "intl.accept_languages": "en-US,en",
   });
 
-  if (process.env.CHROME_BIN) {
-    options.setBinaryPath(process.env.CHROME_BIN);
-  }
+  if (process.env.CHROME_BIN) options.setBinaryPath(process.env.CHROME_BIN);
 
   let driver;
 
@@ -116,125 +108,130 @@ app.post("/api/scrape", async (req, res) => {
       .setChromeOptions(options)
       .build();
 
-    // 8. Extra Measure: Manually delete navigator.webdriver
+    // --- CRITICAL: CDP STEALTH INJECTION ---
+    // This executes deeper than standard driver.executeScript
     try {
-      await driver.executeScript(
-        "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
-      );
+      const cdp = await driver.createCDPConnection("page");
+
+      // 1. Inject Stealth Scripts on Every Navigation
+      await cdp.execute("Page.addScriptToEvaluateOnNewDocument", {
+        source: STEALTH_INJECTION,
+      });
+
+      // 2. Override User Agent at Protocol Level
+      await cdp.execute("Network.setUserAgentOverride", {
+        userAgent:
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        platform: "Windows",
+        acceptLanguage: "en-US,en;q=0.9",
+      });
     } catch (e) {
-      // Ignore
+      console.warn("CDP Injection failed, falling back to standard...", e);
     }
 
-    // --- PHASE 1: WARM UP ---
-    // Visit the base domain first to establish a session without triggering login protection immediately
-    const BASE_URL = "https://systems.bicol-u.edu.ph/";
-    await driver.get(BASE_URL);
-    console.log(`[Link Log] Warm-up access: ${await driver.getCurrentUrl()}`);
+    const TARGET_URL = "https://systems.bicol-u.edu.ph/ibu-beta/login";
 
-    // Human-like pause (1-2 seconds)
-    await randomDelay(1000, 2000);
+    // Attempt navigation with Retry Logic for CAPTCHA
+    let attempts = 0;
+    let success = false;
 
-    // --- PHASE 2: LOGIN ACCESS ---
-    const LOGIN_URL = "https://systems.bicol-u.edu.ph/ibu-beta/login";
-    await driver.get(LOGIN_URL);
+    while (attempts < 2 && !success) {
+      attempts++;
+      try {
+        console.log(`[Link Log] Navigation Attempt ${attempts}: ${TARGET_URL}`);
+        await driver.get(TARGET_URL);
 
-    let currentUrl = await driver.getCurrentUrl();
-    console.log(`[Link Log] Accessed Login Page: ${currentUrl}`);
+        // Wait a moment for redirects
+        await randomDelay(2000, 3000);
 
-    // Check for CAPTCHA immediately upon loading login page
+        const url = await driver.getCurrentUrl();
+        console.log(`[Link Log] Current URL: ${url}`);
+
+        if (url.includes("captcha") || url.includes(".well-known")) {
+          console.log(
+            "[Scraper] CAPTCHA/WAF detected. Waiting 5s for auto-redirect..."
+          );
+          await randomDelay(5000, 6000); // Sometimes WAFs redirect you after a check
+
+          // Check again
+          const checkUrl = await driver.getCurrentUrl();
+          if (
+            checkUrl.includes("captcha") ||
+            checkUrl.includes(".well-known")
+          ) {
+            console.log("[Scraper] Still stuck. Refreshing page...");
+            await driver.navigate().refresh();
+            await randomDelay(3000, 5000);
+          }
+        } else {
+          success = true;
+        }
+      } catch (e) {
+        console.log(`[Scraper] Nav error: ${e.message}`);
+      }
+    }
+
+    // Final check before proceeding
+    const currentUrl = await driver.getCurrentUrl();
     if (currentUrl.includes("captcha") || currentUrl.includes(".well-known")) {
       throw new Error("CAPTCHA_DETECTED");
     }
 
+    // --- LOGIN FORM ---
     const idInput = await driver.wait(
       until.elementLocated(By.id("student-id-1")),
       10000
     );
 
-    // Simulate human typing speed for ID
+    // Human-like Typing
     await idInput.sendKeys(studentId);
-    await randomDelay(300, 700);
+    await randomDelay(200, 400);
 
-    // Simulate human typing speed for Password
-    const passInput = await driver.findElement(By.id("student-password-1"));
-    await passInput.sendKeys(password);
-    await randomDelay(500, 1000);
+    await driver.findElement(By.id("student-password-1")).sendKeys(password);
+    await randomDelay(300, 600);
 
     const submitBtn = await driver.findElement(By.id("submit"));
-    // Use JS click as it's more reliable, but after a small delay
     await driver.executeScript("arguments[0].click();", submitBtn);
 
-    // --- PHASE 3: VERIFICATION ---
-    // Wait for login success or failure or captcha redirect
-    try {
-      // We wait for either the dashboard URL OR the captcha URL
-      await driver.wait(async () => {
-        const url = await driver.getCurrentUrl();
-        return (
-          url.includes("ibu-beta") ||
-          url.includes("captcha") ||
-          url.includes(".well-known")
-        );
-      }, 20000);
-    } catch (e) {
-      // Timeout waiting for redirect
-    }
+    // --- POST LOGIN ---
+    await driver.wait(until.urlContains("ibu-beta"), 20000);
+    console.log(`[Link Log] Login Success: ${await driver.getCurrentUrl()}`);
 
-    currentUrl = await driver.getCurrentUrl();
-    console.log(`[Link Log] Post-Login URL: ${currentUrl}`);
+    // --- GRADES ---
+    await driver.get("https://systems.bicol-u.edu.ph/ibu-beta/grades");
 
-    if (currentUrl.includes("captcha") || currentUrl.includes(".well-known")) {
-      throw new Error("CAPTCHA_DETECTED");
-    }
-
-    // --- PHASE 4: GRADES ACCESS ---
-    // Direct navigation is safer than clicking UI buttons which might have analytics events
-    const GRADES_URL = "https://systems.bicol-u.edu.ph/ibu-beta/grades";
-    await driver.get(GRADES_URL);
-    console.log(
-      `[Link Log] Accessed Grades Page: ${await driver.getCurrentUrl()}`
-    );
-    await randomDelay(500, 1500);
-
-    // --- PHASE 5: SCRAPING ---
+    // Fetch Options
     const dropdown = await driver.wait(
       until.elementLocated(By.id("semesters")),
-      20000
+      15000
     );
     const select = new Select(dropdown);
     const optionsList = await select.getOptions();
 
     const validOptions = [];
     for (let opt of optionsList) {
-      const isDisabled = await opt.getAttribute("disabled");
       const val = await opt.getAttribute("value");
-      if (!isDisabled && val) {
-        validOptions.push({
-          value: val,
-          text: await opt.getText(),
-        });
+      const disabled = await opt.getAttribute("disabled");
+      if (val && !disabled) {
+        validOptions.push({ value: val, text: await opt.getText() });
       }
     }
 
-    // ARRANGE: Smallest to Largest (Oldest to Newest)
     const chronologicalOrder = validOptions.reverse();
     const finalResults = [];
 
     for (const opt of chronologicalOrder) {
-      const currentSelectElement = await driver.findElement(By.id("semesters"));
-      const currentSelect = new Select(currentSelectElement);
+      const currentSelect = new Select(
+        await driver.findElement(By.id("semesters"))
+      );
       await currentSelect.selectByValue(opt.value);
 
-      // Wait for table to update
       try {
         await driver.wait(async () => {
           const rows = await driver.findElements(By.css("table tbody tr"));
           return rows.length > 0;
-        }, 8000);
+        }, 6000);
       } catch (e) {
-        console.log(
-          `[Scraper] Timeout waiting for semester ${opt.text}, skipping...`
-        );
         continue;
       }
 
@@ -244,7 +241,6 @@ app.post("/api/scrape", async (req, res) => {
         if (cells.length >= 3) {
           const subject = await cells[1].getText();
           const grade = await cells[2].getText();
-
           if (
             subject.trim() &&
             grade.trim() &&
@@ -259,44 +255,30 @@ app.post("/api/scrape", async (req, res) => {
           }
         }
       }
-      // Small pause between semesters to be nice to the server
-      await randomDelay(200, 500);
+      await randomDelay(100, 300);
     }
 
-    console.log(`[Scraper] Success! Found ${finalResults.length} grades.`);
+    console.log(`[Scraper] Done. Extracted ${finalResults.length} items.`);
     res.json(finalResults);
   } catch (error) {
-    let currentUrl = "unknown";
-    if (driver) {
-      try {
-        currentUrl = await driver.getCurrentUrl();
-      } catch (e) {}
-    }
+    console.error(`[Scraper] Error: ${error.message}`);
 
-    console.error(`[Scraper] Error: ${error.message} at ${currentUrl}`);
-
-    if (
-      error.message === "CAPTCHA_DETECTED" ||
-      currentUrl.includes("captcha") ||
-      currentUrl.includes(".well-known")
-    ) {
+    // If it's a captcha block, be honest with the user
+    if (error.message.includes("CAPTCHA_DETECTED")) {
       return res.status(403).json({
         error:
-          "Security Check Triggered. The university portal has blocked this cloud server IP. Please try again later or access the portal directly.",
+          "Security Check Triggered. The university firewall is blocking cloud access. Please try again in 30 minutes.",
       });
     }
 
     res.status(500).json({
-      error: error.message.includes("timeout")
-        ? "The portal is taking too long to respond."
-        : "Failed to scrape grades. Please check your credentials.",
+      error: "Connection timed out or failed. Please check credentials.",
     });
   } finally {
     if (driver) await driver.quit();
   }
 });
 
-// Default to 8080 as requested
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log(`🚀 Scraper Server running on port ${PORT}`);
