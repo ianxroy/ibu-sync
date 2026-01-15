@@ -2,6 +2,15 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import chromium from "@sparticuz/chromium-min";
 import puppeteer from "puppeteer-core";
 
+/**
+ * DATA PRIVACY POLICY:
+ * This application processes student credentials (Student ID and Password)
+ * solely for the purpose of retrieving academic records in real-time.
+ * 1. Credentials are never stored, logged, or cached on our servers.
+ * 2. All data fetched is returned directly to the user and is not shared with third parties.
+ * 3. Users are responsible for ensuring they have the right to access the data requested.
+ */
+
 const getEquivalent = (grade: string): string => {
   const map: Record<string, string> = {
     "1.0": "99-100",
@@ -53,7 +62,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   let browser = null;
 
   try {
-    // Launch browser with Vercel-optimized settings
+    // Launch browser with Vercel-optimized settings but extended for Render's 0.1 CPU
     browser = await puppeteer.launch({
       args: [
         ...chromium.args,
@@ -61,7 +70,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         "--disable-web-security",
         "--no-sandbox",
         "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
+        "--disable-dev-shm-usage", // Essential for 512MB RAM
+        "--single-process", // Reduces overhead on low CPU
       ],
       defaultViewport: { width: 1920, height: 1080 },
       executablePath: await chromium.executablePath(),
@@ -85,20 +95,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
 
     // 1. LOGIN
-    // Use domcontentloaded instead of networkidle0 for speed
+    // Increased timeout to 60s for Render Free Tier
     await page.goto("https://systems.bicol-u.edu.ph/ibu-beta/login", {
-      waitUntil: "domcontentloaded",
-      timeout: 20000,
+      waitUntil: "networkidle2",
+      timeout: 60000,
     });
 
-    await page.waitForSelector("#student-id-1", { timeout: 50000 });
-    await page.type("#student-id-1", studentId);
-    await page.type("#student-password-1", password);
+    await page.waitForSelector("#student-id-1", { timeout: 30000 });
+    await page.type("#student-id-1", studentId, { delay: 30 });
+    await page.type("#student-password-1", password, { delay: 30 });
 
-    // Click and wait for navigation safely
+    // Click and wait for navigation
     await Promise.all([
       page.click("#submit"),
-      page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 20000 }),
+      page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 60000 }),
     ]);
 
     // Check for explicit error messages on page
@@ -112,18 +122,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // 2. NAVIGATE TO GRADES
-    // Ensure we are logged in by checking URL or waiting for a specific element if needed
-    // Then jump straight to grades to save time
     await page.goto("https://systems.bicol-u.edu.ph/ibu-beta/grades", {
       waitUntil: "domcontentloaded",
-      timeout: 20000,
+      timeout: 60000,
     });
 
-    await page.waitForSelector("#semesters", { timeout: 15000 });
+    await page.waitForSelector("#semesters", { timeout: 30000 });
 
     // 3. GET SEMESTERS
     const semesters = await page.evaluate(() => {
       const select = document.querySelector("#semesters") as HTMLSelectElement;
+      if (!select) return [];
+
       return (
         Array.from(select.options)
           .filter((opt) => opt.value && !opt.disabled)
@@ -131,7 +141,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             value: opt.value,
             text: opt.textContent?.trim() || "",
           }))
-          // IMPORTANT: Reverse to match "Smallest to Largest" (Oldest to Newest) mandate
+          // Arrange from smallest to largest amount (Oldest to Newest)
           .reverse()
       );
     });
@@ -142,22 +152,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     for (const semester of semesters) {
       await page.select("#semesters", semester.value);
 
-      // Robust wait for table to update or appear
-      // We look for a table row that is NOT empty/loading
       try {
         await page.waitForFunction(
           () => {
             const rows = document.querySelectorAll("table tbody tr");
-            // Ensure at least one row exists
-            if (rows.length === 0) return false;
-            // Ensure it's not a "Loading..." row if such exists (defensive)
-            return true;
+            return rows.length > 0;
           },
-          { timeout: 5000 }
+          { timeout: 15000 }
         );
       } catch (e) {
-        // If timeout, it might mean empty semester, continue to next
-        continue;
+        continue; // Skip empty/slow semesters
       }
 
       // Extract grades
@@ -202,13 +206,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     console.error("Scraping error:", error);
     let errorMessage = "An unexpected error occurred.";
     if (error.message.includes("timeout"))
-      errorMessage = "Request timed out. The portal is slow.";
+      errorMessage = "Request timed out. The portal or server is slow.";
     if (error.message.includes("Login failed"))
       errorMessage = "Invalid credentials.";
+
     return res.status(500).json({ error: errorMessage });
   } finally {
     if (browser) {
-      await browser.close().catch(() => {});
+      await (browser as any).close().catch(() => {});
     }
   }
 }
