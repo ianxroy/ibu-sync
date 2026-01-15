@@ -26,11 +26,12 @@ RUN npm install && npm cache clean --force
 
 COPY . .
 
-ENV PORT=5000
+# Set Port to 8080 as requested
+ENV PORT=8080
 ENV CHROME_BIN=/usr/bin/google-chrome
 # Chrome flags for low-resource environments
 ENV CHROME_PATH=/usr/bin/google-chrome
 
-EXPOSE 5000
+EXPOSE 8080
 
 CMD ["node", "server.js"]

@@ -25,7 +25,6 @@ import {
   IoChatboxEllipsesOutline,
   IoSend,
   IoInformationCircleOutline,
-  IoSpeedometerOutline,
   IoFlashOutline,
 } from "react-icons/io5";
 import { GlassCard } from "./components/ui/GlassCard";
@@ -34,6 +33,8 @@ import { Grade, AppStatus } from "./types";
 import { SUBJECT_UNITS } from "./subjects";
 
 /* ================= CONSTANTS ================= */
+const RAILWAY_PRODUCTION_URL = "https://ibu-sync-production.up.railway.app";
+
 const GRADING_SCALE = [
   { rating: "Outstanding", grade: "1.0", eq: "99-100" },
   { rating: "Outstanding", grade: "1.1", eq: "98" },
@@ -78,27 +79,12 @@ const formatDuration = (seconds: number) => {
   return `${mins}:${secs.toString().padStart(2, "0")}`;
 };
 
-// ================= SERVER LOAD BALANCING LOGIC =================
+// ================= SERVER SELECTION LOGIC =================
 interface ServerNode {
   url: string;
   name: string;
   latency?: number;
 }
-
-const getConfiguredServers = (): ServerNode[] => {
-  // Fix: Cast import.meta to any to avoid property 'env' does not exist error
-  const envUrls = (import.meta as any).env.VITE_BACKEND_URLS;
-  if (!envUrls) return []; // Fallback to local or relative
-
-  return envUrls.split(",").map((url: string) => {
-    const trimmed = url.trim();
-    let name = "Server";
-    if (trimmed.includes("render")) name = "Render (US)";
-    else if (trimmed.includes("railway")) name = "Railway (US)";
-    else if (trimmed.includes("localhost")) name = "Localhost";
-    return { url: trimmed, name };
-  });
-};
 
 const App: React.FC = () => {
   const [studentId, setStudentId] = useState<string>("");
@@ -121,7 +107,7 @@ const App: React.FC = () => {
   const [feedbackSuccess, setFeedbackSuccess] = useState<boolean>(false);
   const [units, setUnits] = useState<Record<string, string>>({});
 
-  // New State for Server Selection
+  // State for Server Selection
   const [activeServer, setActiveServer] = useState<ServerNode | null>(null);
 
   useEffect(() => {
@@ -135,11 +121,9 @@ const App: React.FC = () => {
   useEffect(() => {
     if (status === AppStatus.LOADING) {
       if (!activeServer && elapsedTime < 3)
-        setStatusMessage("Benchmarking Cloud Servers...");
+        setStatusMessage("Connecting to Railway...");
       else if (elapsedTime < 8)
-        setStatusMessage(
-          "Launching Browser on " + (activeServer?.name || "Cloud") + "..."
-        );
+        setStatusMessage("Launching Browser on Cloud...");
       else if (elapsedTime < 18) setStatusMessage("Accessing iBU Portal...");
       else if (elapsedTime < 30)
         setStatusMessage("Authenticating Credentials...");
@@ -174,48 +158,36 @@ const App: React.FC = () => {
     setIsModalOpen(false);
   };
 
-  // --- AUTO SERVER ASSIGNMENT LOGIC ---
-  const findBestServer = async (): Promise<ServerNode> => {
-    const servers = getConfiguredServers();
-
-    // If no external servers configured, fall back to Vercel/Relative path
-    if (servers.length === 0) {
-      return { url: "", name: "Vercel Serverless" };
-    }
-
-    // Race logic: Ping all servers, return the one that answers /health first
+  // --- CONNECT TO RAILWAY ---
+  const connectToRailway = async (): Promise<ServerNode> => {
+    // We simply check health of the single production instance
+    const start = Date.now();
     try {
-      const pingPromises = servers.map(async (server) => {
-        const start = Date.now();
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5s max timeout
+      // 5s timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-        try {
-          const res = await fetch(`${server.url}/api/health`, {
-            signal: controller.signal,
-            method: "GET",
-          });
-          clearTimeout(timeoutId);
-          if (!res.ok) throw new Error("Unhealthy");
-
-          const end = Date.now();
-          return { ...server, latency: end - start };
-        } catch (e) {
-          clearTimeout(timeoutId);
-          throw e;
-        }
+      const res = await fetch(`${RAILWAY_PRODUCTION_URL}/api/health`, {
+        signal: controller.signal,
+        method: "GET",
       });
+      clearTimeout(timeoutId);
 
-      // Use Promise.any to get the first successful response
-      // Fix: Cast Promise to any to avoid Property 'any' does not exist error (ES2021)
-      const winner = await (Promise as any).any(pingPromises);
-      return winner;
-    } catch (err) {
-      console.warn(
-        "All specific servers failed, falling back to default route"
-      );
-      // Fallback if all external servers are down
-      return { url: "", name: "Backup Server" };
+      if (!res.ok) throw new Error("Railway instance unreachable");
+      const end = Date.now();
+
+      return {
+        url: RAILWAY_PRODUCTION_URL,
+        name: "Railway (Production)",
+        latency: end - start,
+      };
+    } catch (e) {
+      console.warn("Health check failed, attempting direct connection anyway");
+      return {
+        url: RAILWAY_PRODUCTION_URL,
+        name: "Railway (Production)",
+        latency: undefined,
+      };
     }
   };
 
@@ -226,25 +198,23 @@ const App: React.FC = () => {
     setStatus(AppStatus.LOADING);
     setErrorMessage("");
     setElapsedTime(0);
-    setActiveServer(null); // Reset
+    setActiveServer(null);
     setIsModalOpen(true);
 
     try {
-      // 1. Find Best Server
-      setStatusMessage("Finding fastest server node...");
-      const bestServer = await findBestServer();
-      setActiveServer(bestServer);
+      // 1. Benchmark / Connect
+      setStatusMessage("Connecting to Railway Server...");
+      const server = await connectToRailway();
+      setActiveServer(server);
 
       console.log(
-        `Routing traffic via: ${bestServer.name} (${
-          bestServer.latency ? bestServer.latency + "ms" : "Direct"
+        `Routing traffic via: ${server.name} (${
+          server.latency ? server.latency + "ms" : "Direct"
         })`
       );
 
       // 2. Scrape
-      const endpoint = bestServer.url
-        ? `${bestServer.url}/api/scrape`
-        : "/api/scrape";
+      const endpoint = `${server.url}/api/scrape`;
 
       const res = await fetch(endpoint, {
         method: "POST",
@@ -258,14 +228,10 @@ const App: React.FC = () => {
       processGrades(data as Grade[]);
     } catch (err: any) {
       console.error(err);
-      // Nice error handling
       let msg = err.message;
-      // Fix: Check name property to avoid 'AggregateError' undefined in older lib targets
-      if ((err as any).name === "AggregateError") {
+      if (!msg || msg === "Failed to fetch") {
         msg =
-          "All server nodes are currently unreachable. Please try again later.";
-      } else if (!msg) {
-        msg = "Could not connect to backend server.";
+          "Could not connect to Railway server. It might be waking up (Cold Start). Please try again in 1 minute.";
       }
       setErrorMessage(msg);
       setStatus(AppStatus.ERROR);
@@ -278,32 +244,16 @@ const App: React.FC = () => {
     if (!feedbackMsg.trim()) return;
     setIsSubmittingFeedback(true);
     try {
-      // Use active server if available, else relative
-      const baseUrl = activeServer?.url || "";
-      const targetUrl = `${baseUrl}/api/feedback`;
+      const targetUrl = `${RAILWAY_PRODUCTION_URL}/api/feedback`;
 
-      // Fallback if that fails, try local relative path for feedback
-      let res;
-      try {
-        res = await fetch(targetUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            message: feedbackMsg,
-            studentId: studentId || "Anonymous",
-          }),
-        });
-      } catch (e) {
-        // Fallback
-        res = await fetch("/api/feedback", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            message: feedbackMsg,
-            studentId: studentId || "Anonymous",
-          }),
-        });
-      }
+      const res = await fetch(targetUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: feedbackMsg,
+          studentId: studentId || "Anonymous",
+        }),
+      });
 
       if (res.ok) {
         setFeedbackSuccess(true);
@@ -445,7 +395,7 @@ const App: React.FC = () => {
               </h1>
             </div>
             <p className="text-xs font-bold text-slate-500 opacity-60 uppercase tracking-widest pl-1">
-              Academic Hub (Turbo Mode)
+              Academic Hub (Railway)
             </p>
           </div>
 

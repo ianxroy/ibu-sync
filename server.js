@@ -15,6 +15,13 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// 0. Health Check Endpoint (Required for Frontend Latency Check)
+app.get("/api/health", (req, res) => {
+  res
+    .status(200)
+    .json({ status: "ok", platform: "Railway", timestamp: Date.now() });
+});
+
 // Helper to determine grade equivalent
 const getEquivalent = (grade) => {
   const map = {
@@ -166,7 +173,8 @@ app.post("/api/scrape", async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 5000;
+// Default to 8080 as requested
+const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log(`🚀 Scraper Server running on port ${PORT}`);
 });
