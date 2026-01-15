@@ -1,7 +1,8 @@
 export const SUBJECT_UNITS: Record<string, string> = {
   "Movement Competency Training": "2.0",
   "Exercise-based Fitness Activities": "2.0",
-  "Menu of Dance, Sports, Martial Arts, Group Exercise, Outdoor and Adventure Activities": "2.0",
+  "Menu of Dance, Sports, Martial Arts, Group Exercise, Outdoor and Adventure Activities":
+    "2.0",
   "CWTS/LTS/ROTC": "3.0",
   "Understanding the Self": "3.0",
   "Readings in Philippine History": "3.0",
@@ -10,7 +11,7 @@ export const SUBJECT_UNITS: Record<string, string> = {
   "Purposive Communication": "3.0",
   "Art Appreciation": "3.0",
   "Science, Technology and Society": "3.0",
-  "Ethics": "3.0",
+  Ethics: "3.0",
   "Environmental Science": "3.0",
   "The Entrepreneurial Mind": "3.0",
   "Great Books": "3.0",
@@ -38,12 +39,12 @@ export const SUBJECT_UNITS: Record<string, string> = {
   "Digital Systems Design": "3.0",
   "Thesis 1": "3.0",
   "Physics for Computing": "3.0",
-  "Mathematical Analysis 1": "3.0",
-  "Mathematical Analysis 2": "3.0",
+  "Mathematical Analysis 1": "5.0",
+  "Mathematical Analysis 2": "5.0",
   "Linear Algebra": "3.0",
   "Differential Equations": "3.0",
   "Numerical Analysis": "3.0",
   "CS Elec 1": "3.0",
   "CS Elec 3": "3.0",
-  "Practicum (240 Hours)": "3.0"
+  "Practicum (240 Hours)": "3.0",
 };

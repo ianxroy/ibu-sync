@@ -30,6 +30,8 @@ import {
   IoOptions,
   IoAlertCircleOutline,
   IoAnalytics,
+  IoWarningOutline,
+  IoDownloadOutline,
 } from "react-icons/io5";
 import { GlassCard } from "./components/ui/GlassCard";
 import { Input } from "./components/ui/Input";
@@ -396,6 +398,7 @@ const App: React.FC = () => {
   const distinctions = useMemo(() => {
     if (grades.length === 0) return [];
 
+    // Sort Semesters Oldest to Newest for the loop
     const sorted = Object.keys(groupedGrades).sort((a, b) => {
       const orderA = getSemesterOrder(a);
       const orderB = getSemesterOrder(b);
@@ -404,13 +407,6 @@ const App: React.FC = () => {
       return orderA.semOrder - orderB.semOrder;
     });
 
-    let startIndex = sorted.findIndex((sem) => {
-      const { semOrder } = getSemesterOrder(sem);
-      return semOrder === 2; // 2nd Sem
-    });
-
-    if (startIndex === -1) return [];
-
     const items: {
       period: string;
       gwa: string;
@@ -418,43 +414,58 @@ const App: React.FC = () => {
       color: string;
     }[] = [];
 
-    for (let i = startIndex; i < sorted.length - 1; i += 2) {
-      const sem1 = sorted[i];
-      const sem2 = sorted[i + 1];
-      const batchGrades = [
-        ...(groupedGrades[sem1] || []),
-        ...(groupedGrades[sem2] || []),
-      ];
+    // Logic: Iterate through sorted semesters. If we find a "2nd Sem Year X", check if next is "1st Sem Year X+1"
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const currentSem = sorted[i];
+      const nextSem = sorted[i + 1];
 
-      const disqualified = batchGrades.some((g) => {
-        const val = parseFloat(g.grade);
-        return !isNaN(val) && val > 2.4;
-      });
+      const orderC = getSemesterOrder(currentSem);
+      const orderN = getSemesterOrder(nextSem);
 
-      if (disqualified) continue;
+      // Check if pair is (2nd Sem, 1st Sem) and Consecutive Years
+      const isConsecutivePair =
+        orderC.semOrder === 2 &&
+        orderN.semOrder === 1 &&
+        orderN.startYear === orderC.startYear + 1;
 
-      // Use Strict GWA for Awards (Awards usually require completed grades)
-      const gwaStr = calculateGWA(batchGrades, units, false);
-      if (gwaStr === "---") continue;
-      const gwa = parseFloat(gwaStr);
+      if (isConsecutivePair) {
+        const batchGrades = [
+          ...(groupedGrades[currentSem] || []),
+          ...(groupedGrades[nextSem] || []),
+        ];
 
-      if (gwa <= 1.45) {
-        items.push({
-          period: `${sem1} & ${sem2}`,
-          gwa: gwaStr,
-          title: "President's Lister",
-          color: "from-yellow-400 to-amber-600",
+        // Disqualification Check: No grade > 2.4
+        const disqualified = batchGrades.some((g) => {
+          const val = parseFloat(g.grade);
+          return !isNaN(val) && val > 2.4;
         });
-      } else if (gwa <= 1.75) {
-        items.push({
-          period: `${sem1} & ${sem2}`,
-          gwa: gwaStr,
-          title: "Dean's Lister",
-          color: "from-blue-400 to-indigo-600",
-        });
+
+        if (!disqualified) {
+          // Strict GWA required for awards
+          const gwaStr = calculateGWA(batchGrades, units, false);
+          if (gwaStr !== "---") {
+            const gwa = parseFloat(gwaStr);
+            if (gwa <= 1.45) {
+              items.push({
+                period: `${currentSem} & ${nextSem}`,
+                gwa: gwaStr,
+                title: "President's Lister",
+                color: "from-yellow-400 to-amber-600",
+              });
+            } else if (gwa <= 1.75) {
+              items.push({
+                period: `${currentSem} & ${nextSem}`,
+                gwa: gwaStr,
+                title: "Dean's Lister",
+                color: "from-blue-400 to-indigo-600",
+              });
+            }
+          }
+        }
       }
     }
 
+    // Reverse to show Newest First in UI
     return items.reverse();
   }, [groupedGrades, units, grades]);
 
@@ -565,14 +576,51 @@ const App: React.FC = () => {
     setUnits((prev) => ({ ...prev, [`${semester}-${subject}`]: val }));
   };
 
+  const handleExport = () => {
+    // CSV Header
+    const csvRows = [["Semester", "Subject", "Grade", "Equivalent", "Units"]];
+
+    // Data
+    sortedSemesterEntries.forEach(([semester, items]) => {
+      items.forEach((g) => {
+        const unit = units[`${g.semester}-${g.subject}`] || "0";
+        // Escape quotes for CSV
+        const safeSubject = `"${g.subject.replace(/"/g, '""')}"`;
+        // Wrap semester in quotes to prevent date parsing issues in Excel
+        const safeSemester = `"${g.semester}"`;
+        csvRows.push([
+          safeSemester,
+          safeSubject,
+          g.grade,
+          g.equivalent || "",
+          unit,
+        ]);
+      });
+    });
+
+    const csvContent = csvRows.map((e) => e.join(",")).join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute(
+      "download",
+      `ibu_grade_export_${studentId || "history"}.csv`
+    );
+    link.style.visibility = "hidden";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="min-h-screen w-full flex items-start md:items-center justify-center p-4 relative overflow-y-auto font-sans">
       {/* Background Orbs */}
       <div className="fixed top-[-5%] left-[-5%] w-[40%] h-[40%] bg-blue-500/10 rounded-full blur-[100px] animate-pulse pointer-events-none"></div>
       <div className="fixed bottom-[-5%] right-[-5%] w-[40%] h-[40%] bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none"></div>
 
-      {/* Main GlassCard with fixed height on desktop to prevent expansion */}
-      <GlassCard className="w-full max-w-5xl h-[90vh] md:h-[85vh] min-h-[600px] flex flex-col md:flex-row overflow-hidden relative z-10 border border-white shadow-xl rounded-[24px] my-4 md:my-0">
+      {/* Main GlassCard - Mobile Optimized Height */}
+      <GlassCard className="w-full max-w-5xl h-auto md:h-[85vh] min-h-0 md:min-h-[600px] flex flex-col md:flex-row overflow-hidden md:overflow-hidden relative z-10 border border-white shadow-xl rounded-[24px] my-4 md:my-0">
         {/* SIDEBAR */}
         <div className="w-full md:w-[320px] p-6 border-b md:border-b-0 md:border-r border-white/40 flex flex-col bg-white/40 backdrop-blur-xl shrink-0">
           <div className="mb-8">
@@ -678,24 +726,33 @@ const App: React.FC = () => {
           </div>
         </div>
 
-        {/* CONTENT AREA */}
-        <div className="flex-1 p-6 md:p-8 bg-white/20 overflow-y-auto custom-scrollbar">
+        {/* CONTENT AREA - Mobile: Allow Body Scroll by removing fixed height constraints from parent (above) and using md:overflow-y-auto here */}
+        <div className="flex-1 p-6 md:p-8 bg-white/20 md:overflow-y-auto custom-scrollbar">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-xl font-black text-slate-800 tracking-tight">
               Academic History
             </h2>
             {status === AppStatus.SUCCESS && (
-              <button
-                onClick={() => {
-                  setGrades([]);
-                  setStatus(AppStatus.IDLE);
-                  setStudentId("");
-                  setPassword("");
-                }}
-                className="p-3 rounded-xl bg-white hover:bg-slate-50 text-slate-600 shadow-md active:scale-[0.97]"
-              >
-                <IoRefresh size={18} />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleExport}
+                  className="p-3 rounded-xl bg-white hover:bg-slate-50 text-blue-600 shadow-md active:scale-[0.97] transition-all"
+                  title="Export to Excel/CSV"
+                >
+                  <IoDownloadOutline size={18} />
+                </button>
+                <button
+                  onClick={() => {
+                    setGrades([]);
+                    setStatus(AppStatus.IDLE);
+                    setStudentId("");
+                    setPassword("");
+                  }}
+                  className="p-3 rounded-xl bg-white hover:bg-slate-50 text-slate-600 shadow-md active:scale-[0.97]"
+                >
+                  <IoRefresh size={18} />
+                </button>
+              </div>
             )}
           </div>
 
@@ -884,7 +941,7 @@ const App: React.FC = () => {
                   <div className="flex items-center gap-2 mb-3 px-1">
                     <IoRibbon size={18} className="text-yellow-500" />
                     <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest">
-                      Academic Distinctions
+                      Consecutive Awards
                     </h3>
                   </div>
                   <div className="flex gap-4 overflow-x-auto pb-4 -mx-4 px-4 snap-x custom-scrollbar">
@@ -906,7 +963,7 @@ const App: React.FC = () => {
                             </div>
                             <div className="text-right">
                               <div className="text-[10px] font-bold opacity-80 uppercase tracking-wider">
-                                GWA
+                                Comb. GWA
                               </div>
                               <div className="text-2xl font-black tracking-tighter leading-none">
                                 {d.gwa}
@@ -932,9 +989,34 @@ const App: React.FC = () => {
           <div className="space-y-4">
             {sortedSemesterEntries.map(([semester, items]) => {
               // Semester GWA ignores missing to show current standing
-              const semGWA = calculateGWA(items, units, true);
+              const semGWAStr = calculateGWA(items, units, true);
               const strictSemGWA = calculateGWA(items, units, false);
-              const isSemPartial = strictSemGWA === "---" && semGWA !== "---";
+              const isSemPartial =
+                strictSemGWA === "---" && semGWAStr !== "---";
+
+              // Per-Semester Distinction Check (assuming no grade > 2.4 logic applies here too for consistency, or just >3.0)
+              // Usually DL per sem is just based on GWA and no failing grades.
+              let semDistinction = null;
+              if (semGWAStr !== "---") {
+                const gwa = parseFloat(semGWAStr);
+                // Check for failing or low grades
+                const hasLowGrade = items.some((g) => {
+                  const v = parseFloat(g.grade);
+                  return !isNaN(v) && v > 3.0;
+                });
+                if (!hasLowGrade) {
+                  if (gwa <= 1.45)
+                    semDistinction = {
+                      label: "President's Lister Qualifier",
+                      color: "bg-yellow-100 text-yellow-700",
+                    };
+                  else if (gwa <= 1.75)
+                    semDistinction = {
+                      label: "Dean's Lister Qualifier",
+                      color: "bg-blue-100 text-blue-700",
+                    };
+                }
+              }
 
               return (
                 <div
@@ -957,6 +1039,13 @@ const App: React.FC = () => {
                         </div>
                         {semester}
                       </span>
+                      {semDistinction && (
+                        <span
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide ml-10 ${semDistinction.color}`}
+                        >
+                          {semDistinction.label}
+                        </span>
+                      )}
                     </div>
                     <div className="flex items-center gap-4">
                       <div className="flex flex-col items-end">
@@ -965,7 +1054,7 @@ const App: React.FC = () => {
                           <span className="text-[10px] font-medium opacity-70 uppercase tracking-wide">
                             GWA
                           </span>
-                          <span className="text-xs font-bold">{semGWA}</span>
+                          <span className="text-xs font-bold">{semGWAStr}</span>
                         </div>
                         {isSemPartial && (
                           <span className="text-[8px] font-bold text-orange-500 mt-1 uppercase tracking-wide">
