@@ -25,6 +25,8 @@ import {
   IoChatboxEllipsesOutline,
   IoSend,
   IoInformationCircleOutline,
+  IoSpeedometerOutline,
+  IoFlashOutline,
 } from "react-icons/io5";
 import { GlassCard } from "./components/ui/GlassCard";
 import { Input } from "./components/ui/Input";
@@ -76,6 +78,28 @@ const formatDuration = (seconds: number) => {
   return `${mins}:${secs.toString().padStart(2, "0")}`;
 };
 
+// ================= SERVER LOAD BALANCING LOGIC =================
+interface ServerNode {
+  url: string;
+  name: string;
+  latency?: number;
+}
+
+const getConfiguredServers = (): ServerNode[] => {
+  // Fix: Cast import.meta to any to avoid property 'env' does not exist error
+  const envUrls = (import.meta as any).env.VITE_BACKEND_URLS;
+  if (!envUrls) return []; // Fallback to local or relative
+
+  return envUrls.split(",").map((url: string) => {
+    const trimmed = url.trim();
+    let name = "Server";
+    if (trimmed.includes("render")) name = "Render (US)";
+    else if (trimmed.includes("railway")) name = "Railway (US)";
+    else if (trimmed.includes("localhost")) name = "Localhost";
+    return { url: trimmed, name };
+  });
+};
+
 const App: React.FC = () => {
   const [studentId, setStudentId] = useState<string>("");
   const [password, setPassword] = useState<string>("");
@@ -97,6 +121,9 @@ const App: React.FC = () => {
   const [feedbackSuccess, setFeedbackSuccess] = useState<boolean>(false);
   const [units, setUnits] = useState<Record<string, string>>({});
 
+  // New State for Server Selection
+  const [activeServer, setActiveServer] = useState<ServerNode | null>(null);
+
   useEffect(() => {
     let interval: NodeJS.Timeout;
     if (status === AppStatus.LOADING) {
@@ -107,12 +134,18 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (status === AppStatus.LOADING) {
-      if (elapsedTime < 5) setStatusMessage("Launching Cloud Browser...");
-      else if (elapsedTime < 15) setStatusMessage("Accessing iBU Portal...");
-      else if (elapsedTime < 25) setStatusMessage("Authenticating...");
+      if (!activeServer && elapsedTime < 3)
+        setStatusMessage("Benchmarking Cloud Servers...");
+      else if (elapsedTime < 8)
+        setStatusMessage(
+          "Launching Browser on " + (activeServer?.name || "Cloud") + "..."
+        );
+      else if (elapsedTime < 18) setStatusMessage("Accessing iBU Portal...");
+      else if (elapsedTime < 30)
+        setStatusMessage("Authenticating Credentials...");
       else setStatusMessage("Syncing records (Smallest to Largest)...");
     }
-  }, [elapsedTime, status]);
+  }, [elapsedTime, status, activeServer]);
 
   const processGrades = (data: Grade[]) => {
     setGrades(data);
@@ -130,12 +163,10 @@ const App: React.FC = () => {
       const subjectName = g.subject.trim();
       const subjectNameLower = subjectName.toLowerCase();
 
-      // Look up default unit from subject.ts (case-insensitive check added)
       if (SUBJECT_UNITS[subjectName])
         initialUnits[key] = SUBJECT_UNITS[subjectName];
       else if (normalizedSubjectMap[subjectNameLower])
         initialUnits[key] = normalizedSubjectMap[subjectNameLower];
-      // Note: If not found, it remains undefined here, so input will default to empty string
     });
 
     setUnits(initialUnits);
@@ -143,11 +174,49 @@ const App: React.FC = () => {
     setIsModalOpen(false);
   };
 
-  const getApiUrl = (endpoint: string) => {
-    // If VITE_API_BASE_URL is set (e.g. for Render backend), use it.
-    // Otherwise, default to relative path for Vercel Serverless functions.
-    const baseUrl = import.meta.env.VITE_API_BASE_URL || "";
-    return `${baseUrl}${endpoint}`;
+  // --- AUTO SERVER ASSIGNMENT LOGIC ---
+  const findBestServer = async (): Promise<ServerNode> => {
+    const servers = getConfiguredServers();
+
+    // If no external servers configured, fall back to Vercel/Relative path
+    if (servers.length === 0) {
+      return { url: "", name: "Vercel Serverless" };
+    }
+
+    // Race logic: Ping all servers, return the one that answers /health first
+    try {
+      const pingPromises = servers.map(async (server) => {
+        const start = Date.now();
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5s max timeout
+
+        try {
+          const res = await fetch(`${server.url}/api/health`, {
+            signal: controller.signal,
+            method: "GET",
+          });
+          clearTimeout(timeoutId);
+          if (!res.ok) throw new Error("Unhealthy");
+
+          const end = Date.now();
+          return { ...server, latency: end - start };
+        } catch (e) {
+          clearTimeout(timeoutId);
+          throw e;
+        }
+      });
+
+      // Use Promise.any to get the first successful response
+      // Fix: Cast Promise to any to avoid Property 'any' does not exist error (ES2021)
+      const winner = await (Promise as any).any(pingPromises);
+      return winner;
+    } catch (err) {
+      console.warn(
+        "All specific servers failed, falling back to default route"
+      );
+      // Fallback if all external servers are down
+      return { url: "", name: "Backup Server" };
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -157,12 +226,27 @@ const App: React.FC = () => {
     setStatus(AppStatus.LOADING);
     setErrorMessage("");
     setElapsedTime(0);
+    setActiveServer(null); // Reset
     setIsModalOpen(true);
 
     try {
-      const targetUrl = getApiUrl("/api/scrape");
+      // 1. Find Best Server
+      setStatusMessage("Finding fastest server node...");
+      const bestServer = await findBestServer();
+      setActiveServer(bestServer);
 
-      const res = await fetch(targetUrl, {
+      console.log(
+        `Routing traffic via: ${bestServer.name} (${
+          bestServer.latency ? bestServer.latency + "ms" : "Direct"
+        })`
+      );
+
+      // 2. Scrape
+      const endpoint = bestServer.url
+        ? `${bestServer.url}/api/scrape`
+        : "/api/scrape";
+
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ studentId, password }),
@@ -174,7 +258,15 @@ const App: React.FC = () => {
       processGrades(data as Grade[]);
     } catch (err: any) {
       console.error(err);
-      const msg = err.message || "Could not connect to backend server.";
+      // Nice error handling
+      let msg = err.message;
+      // Fix: Check name property to avoid 'AggregateError' undefined in older lib targets
+      if ((err as any).name === "AggregateError") {
+        msg =
+          "All server nodes are currently unreachable. Please try again later.";
+      } else if (!msg) {
+        msg = "Could not connect to backend server.";
+      }
       setErrorMessage(msg);
       setStatus(AppStatus.ERROR);
       setIsModalOpen(false);
@@ -186,15 +278,33 @@ const App: React.FC = () => {
     if (!feedbackMsg.trim()) return;
     setIsSubmittingFeedback(true);
     try {
-      const targetUrl = getApiUrl("/api/feedback");
-      const res = await fetch(targetUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: feedbackMsg,
-          studentId: studentId || "Anonymous",
-        }),
-      });
+      // Use active server if available, else relative
+      const baseUrl = activeServer?.url || "";
+      const targetUrl = `${baseUrl}/api/feedback`;
+
+      // Fallback if that fails, try local relative path for feedback
+      let res;
+      try {
+        res = await fetch(targetUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: feedbackMsg,
+            studentId: studentId || "Anonymous",
+          }),
+        });
+      } catch (e) {
+        // Fallback
+        res = await fetch("/api/feedback", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: feedbackMsg,
+            studentId: studentId || "Anonymous",
+          }),
+        });
+      }
+
       if (res.ok) {
         setFeedbackSuccess(true);
         setFeedbackMsg("");
@@ -847,21 +957,38 @@ const App: React.FC = () => {
             </p>
             <div className="space-y-3">
               <Step
-                label="Connecting"
-                active={elapsedTime < 5}
-                done={elapsedTime >= 5}
+                label="Analyzing Servers"
+                active={elapsedTime < 3}
+                done={elapsedTime >= 3}
               />
               <Step
                 label="Authenticating"
-                active={elapsedTime >= 5 && elapsedTime < 25}
-                done={elapsedTime >= 25}
+                active={elapsedTime >= 3 && elapsedTime < 30}
+                done={elapsedTime >= 30}
               />
               <Step
                 label="Extracting Grades"
-                active={elapsedTime >= 25}
+                active={elapsedTime >= 30}
                 done={false}
               />
             </div>
+
+            {activeServer && (
+              <div className="mt-8 pt-4 border-t border-slate-100 animate-in slide-in-from-bottom-2">
+                <div className="flex items-center justify-between px-2 text-xs">
+                  <div className="flex items-center gap-2 text-slate-500">
+                    <IoServerOutline />
+                    <span className="font-bold">{activeServer.name}</span>
+                  </div>
+                  {activeServer.latency && (
+                    <div className="flex items-center gap-1 text-emerald-500 font-mono font-bold">
+                      <IoFlashOutline />
+                      {activeServer.latency}ms
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
