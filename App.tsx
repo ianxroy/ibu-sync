@@ -166,37 +166,25 @@ const App: React.FC = () => {
     setStatus(AppStatus.SUCCESS);
     setIsModalOpen(false);
   };
-
-  // --- CONNECT TO RAILWAY ---
+  // OPTIMIZATION: Faster health checks
   const connectToRailway = async (): Promise<ServerNode> => {
-    // We simply check health of the single production instance
     const start = Date.now();
     try {
-      // 5s timeout
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      const timeoutId = setTimeout(() => controller.abort(), 3000); // Shorter 3s timeout
 
       const res = await fetch(`${RAILWAY_PRODUCTION_URL}/api/health`, {
         signal: controller.signal,
-        method: "GET",
       });
       clearTimeout(timeoutId);
 
-      if (!res.ok) throw new Error("Railway instance unreachable");
-      const end = Date.now();
-
       return {
         url: RAILWAY_PRODUCTION_URL,
         name: "Railway (Production)",
-        latency: end - start,
+        latency: Date.now() - start,
       };
     } catch (e) {
-      console.warn("Health check failed, attempting direct connection anyway");
-      return {
-        url: RAILWAY_PRODUCTION_URL,
-        name: "Railway (Production)",
-        latency: undefined,
-      };
+      return { url: RAILWAY_PRODUCTION_URL, name: "Railway (Production)" };
     }
   };
 
@@ -207,42 +195,33 @@ const App: React.FC = () => {
     setStatus(AppStatus.LOADING);
     setErrorMessage("");
     setElapsedTime(0);
-    setActiveServer(null);
     setIsModalOpen(true);
 
     try {
-      // 1. Benchmark / Connect
-      setStatusMessage("Connecting to Railway Server...");
+      // 1. Concurrent Health Check + Connection
       const server = await connectToRailway();
       setActiveServer(server);
 
-      console.log(
-        `Routing traffic via: ${server.name} (${
-          server.latency ? server.latency + "ms" : "Direct"
-        })`
-      );
-
-      // 2. Scrape
-      const endpoint = `${server.url}/api/scrape`;
-
-      const res = await fetch(endpoint, {
+      // 2. Scrape with keep-alive signal
+      const res = await fetch(`${server.url}/api/scrape`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ studentId, password }),
       });
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to sync.");
-
-      processGrades(data as Grade[]);
-    } catch (err: any) {
-      console.error(err);
-      let msg = err.message;
-      if (!msg || msg === "Failed to fetch") {
-        msg =
-          "Could not connect to Railway server. It might be waking up (Cold Start). Please try again in 1 minute.";
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Sync failed.");
       }
-      setErrorMessage(msg);
+
+      const data = await res.json();
+      processGrades(data);
+    } catch (err: any) {
+      setErrorMessage(
+        err.message === "Failed to fetch"
+          ? "Server is waking up. Try again in 30s."
+          : err.message
+      );
       setStatus(AppStatus.ERROR);
       setIsModalOpen(false);
     }
