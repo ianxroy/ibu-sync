@@ -382,9 +382,10 @@ const App: React.FC = () => {
       <div className="fixed top-[-5%] left-[-5%] w-[40%] h-[40%] bg-blue-500/10 rounded-full blur-[100px] animate-pulse pointer-events-none"></div>
       <div className="fixed bottom-[-5%] right-[-5%] w-[40%] h-[40%] bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none"></div>
 
-      <GlassCard className="w-full max-w-5xl min-h-[600px] flex flex-col md:flex-row overflow-hidden relative z-10 border border-white shadow-xl rounded-[24px] my-4 md:my-0">
+      {/* Main GlassCard with fixed height on desktop to prevent expansion */}
+      <GlassCard className="w-full max-w-5xl h-[90vh] md:h-[85vh] min-h-[600px] flex flex-col md:flex-row overflow-hidden relative z-10 border border-white shadow-xl rounded-[24px] my-4 md:my-0">
         {/* SIDEBAR */}
-        <div className="w-full md:w-[320px] p-6 border-b md:border-b-0 md:border-r border-white/40 flex flex-col bg-white/40 backdrop-blur-xl">
+        <div className="w-full md:w-[320px] p-6 border-b md:border-b-0 md:border-r border-white/40 flex flex-col bg-white/40 backdrop-blur-xl shrink-0">
           <div className="mb-8">
             <div className="flex items-center gap-3 mb-2">
               <div className="w-10 h-10 rounded-[12px] bg-blue-600 text-white flex items-center justify-center shadow-lg shadow-blue-500/30">
