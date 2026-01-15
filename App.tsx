@@ -1,0 +1,914 @@
+import React, { useState, useMemo, useEffect } from "react";
+import {
+  IoSchool,
+  IoPerson,
+  IoKey,
+  IoRefresh,
+  IoRocket,
+  IoShieldCheckmarkOutline,
+  IoChevronDown,
+  IoChevronForward,
+  IoGlobeOutline,
+  IoBook,
+  IoSyncOutline,
+  IoCheckmarkCircle,
+  IoCloseCircle,
+  IoCalculator,
+  IoTrendingUp,
+  IoRibbon,
+  IoLayers,
+  IoTimeOutline,
+  IoStar,
+  IoLockClosedOutline,
+  IoEyeOffOutline,
+  IoServerOutline,
+  IoChatboxEllipsesOutline,
+  IoSend,
+  IoInformationCircleOutline,
+} from "react-icons/io5";
+import { GlassCard } from "./components/ui/GlassCard";
+import { Input } from "./components/ui/Input";
+import { Grade, AppStatus } from "./types";
+import { SUBJECT_UNITS } from "./subjects";
+
+/* ================= CONSTANTS ================= */
+const GRADING_SCALE = [
+  { rating: "Outstanding", grade: "1.0", eq: "99-100" },
+  { rating: "Outstanding", grade: "1.1", eq: "98" },
+  { rating: "Outstanding", grade: "1.2", eq: "97" },
+  { rating: "Outstanding", grade: "1.3", eq: "96" },
+  { rating: "Outstanding", grade: "1.4", eq: "95" },
+  { rating: "Superior", grade: "1.5", eq: "94" },
+  { rating: "Superior", grade: "1.6", eq: "93" },
+  { rating: "Superior", grade: "1.7", eq: "92" },
+  { rating: "Very Satisfactory", grade: "1.8", eq: "91" },
+  { rating: "Very Satisfactory", grade: "1.9", eq: "90" },
+  { rating: "Very Satisfactory", grade: "2.0", eq: "89" },
+  { rating: "Very Satisfactory", grade: "2.1", eq: "88" },
+  { rating: "Very Satisfactory", grade: "2.2", eq: "87" },
+  { rating: "Very Satisfactory", grade: "2.3", eq: "86" },
+  { rating: "Very Satisfactory", grade: "2.4", eq: "85" },
+  { rating: "Very Satisfactory", grade: "2.5", eq: "84" },
+  { rating: "Satisfactory", grade: "2.6", eq: "82-83" },
+  { rating: "Satisfactory", grade: "2.7", eq: "80-81" },
+  { rating: "Satisfactory", grade: "2.8", eq: "78-79" },
+  { rating: "Fair/Average", grade: "2.9", eq: "76-77" },
+  { rating: "Fair/Average", grade: "3.0", eq: "75 (Passing)" },
+  { rating: "Poor", grade: "3.1-4.0", eq: "Below 75 (Conditional)" },
+  { rating: "Failure", grade: "5.0", eq: "Failure" },
+];
+
+const getSemesterOrder = (semString: string) => {
+  const yearMatch = semString.match(/(\d{4})/);
+  const startYear = yearMatch ? parseInt(yearMatch[0]) : 0;
+  let semOrder = 4;
+  const lower = semString.toLowerCase();
+  if (lower.includes("1st") || lower.includes("first")) semOrder = 1;
+  else if (lower.includes("2nd") || lower.includes("second")) semOrder = 2;
+  else if (lower.includes("3rd") || lower.includes("third")) semOrder = 3;
+  else if (lower.includes("summer") || lower.includes("mid")) semOrder = 3.5;
+  return { startYear, semOrder };
+};
+
+const formatDuration = (seconds: number) => {
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${mins}:${secs.toString().padStart(2, "0")}`;
+};
+
+const App: React.FC = () => {
+  const [studentId, setStudentId] = useState<string>("");
+  const [password, setPassword] = useState<string>("");
+  const [status, setStatus] = useState<AppStatus>(AppStatus.IDLE);
+  const [grades, setGrades] = useState<Grade[]>([]);
+  const [errorMessage, setErrorMessage] = useState<string>("");
+  const [statusMessage, setStatusMessage] = useState<string>("");
+  const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
+  const [expandedSemesters, setExpandedSemesters] = useState<
+    Record<string, boolean>
+  >({});
+  const [showGradingScale, setShowGradingScale] = useState<boolean>(false);
+  const [showPrivacy, setShowPrivacy] = useState<boolean>(false);
+  const [showFeedback, setShowFeedback] = useState<boolean>(false);
+  const [elapsedTime, setElapsedTime] = useState<number>(0);
+  const [feedbackMsg, setFeedbackMsg] = useState<string>("");
+  const [isSubmittingFeedback, setIsSubmittingFeedback] =
+    useState<boolean>(false);
+  const [feedbackSuccess, setFeedbackSuccess] = useState<boolean>(false);
+  const [units, setUnits] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (status === AppStatus.LOADING) {
+      interval = setInterval(() => setElapsedTime((p) => p + 1), 1000);
+    }
+    return () => clearInterval(interval);
+  }, [status]);
+
+  useEffect(() => {
+    if (status === AppStatus.LOADING) {
+      if (elapsedTime < 5) setStatusMessage("Launching Cloud Browser...");
+      else if (elapsedTime < 15) setStatusMessage("Accessing iBU Portal...");
+      else if (elapsedTime < 25) setStatusMessage("Authenticating...");
+      else setStatusMessage("Syncing records (Smallest to Largest)...");
+    }
+  }, [elapsedTime, status]);
+
+  const processGrades = (data: Grade[]) => {
+    setGrades(data);
+    const initialUnits: Record<string, string> = {};
+    const normalizedSubjectMap = Object.keys(SUBJECT_UNITS).reduce(
+      (acc, key) => {
+        acc[key.toLowerCase()] = SUBJECT_UNITS[key];
+        return acc;
+      },
+      {} as Record<string, string>
+    );
+
+    data.forEach((g: Grade) => {
+      const key = `${g.semester}-${g.subject}`;
+      const subjectName = g.subject.trim();
+      const subjectNameLower = subjectName.toLowerCase();
+
+      // Look up default unit from subject.ts (case-insensitive check added)
+      if (SUBJECT_UNITS[subjectName])
+        initialUnits[key] = SUBJECT_UNITS[subjectName];
+      else if (normalizedSubjectMap[subjectNameLower])
+        initialUnits[key] = normalizedSubjectMap[subjectNameLower];
+      // Note: If not found, it remains undefined here, so input will default to empty string
+    });
+
+    setUnits(initialUnits);
+    setStatus(AppStatus.SUCCESS);
+    setIsModalOpen(false);
+  };
+
+  const getApiUrl = (endpoint: string) => {
+    // If running locally, prefer the local Express server on port 5000
+    // If running in production (Vercel), use the relative path which hits the serverless function
+    if (
+      typeof window !== "undefined" &&
+      window.location.hostname === "localhost"
+    ) {
+      return `http://localhost:5000${endpoint}`;
+    }
+    return endpoint;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!studentId || !password) return;
+
+    setStatus(AppStatus.LOADING);
+    setErrorMessage("");
+    setElapsedTime(0);
+    setIsModalOpen(true);
+
+    try {
+      const targetUrl = getApiUrl("/api/scrape");
+
+      const res = await fetch(targetUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ studentId, password }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to sync.");
+
+      processGrades(data as Grade[]);
+    } catch (err: any) {
+      console.error(err);
+      let msg = err.message || "Could not connect to backend server.";
+      if (
+        msg.includes("Failed to fetch") &&
+        window.location.hostname === "localhost"
+      ) {
+        msg = "Local server not found. Run 'npm run server' in a terminal.";
+      }
+      setErrorMessage(msg);
+      setStatus(AppStatus.ERROR);
+      setIsModalOpen(false);
+    }
+  };
+
+  const handleFeedbackSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!feedbackMsg.trim()) return;
+    setIsSubmittingFeedback(true);
+    try {
+      const targetUrl = getApiUrl("/api/feedback");
+      const res = await fetch(targetUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: feedbackMsg,
+          studentId: studentId || "Anonymous",
+        }),
+      });
+      if (res.ok) {
+        setFeedbackSuccess(true);
+        setFeedbackMsg("");
+        setTimeout(() => {
+          setFeedbackSuccess(false);
+          setShowFeedback(false);
+        }, 2000);
+      }
+    } catch (error) {
+      console.error("Feedback error:", error);
+    } finally {
+      setIsSubmittingFeedback(false);
+    }
+  };
+
+  const groupedGrades = useMemo(() => {
+    const groups: Record<string, Grade[]> = {};
+    grades.forEach((g: Grade) => {
+      if (!groups[g.semester]) groups[g.semester] = [];
+      groups[g.semester].push(g);
+    });
+    return groups;
+  }, [grades]);
+
+  const sortedSemesterEntries = useMemo(() => {
+    return Object.entries(groupedGrades).sort(([semA], [semB]) => {
+      const a = getSemesterOrder(semA);
+      const b = getSemesterOrder(semB);
+      // Newest first (Descending)
+      if (a.startYear !== b.startYear) return b.startYear - a.startYear;
+      return b.semOrder - a.semOrder;
+    });
+  }, [groupedGrades]);
+
+  const calculateGWA = (
+    gradeList: Grade[],
+    unitMap: Record<string, string>
+  ): string => {
+    let totalWeightedGrades = 0;
+    let totalUnits = 0;
+
+    for (const g of gradeList) {
+      const gradeStr = g.grade.trim().toUpperCase();
+
+      if (["N/A", "INC", "INCOMPLETE", "", "-"].includes(gradeStr)) {
+        return "---";
+      }
+
+      const gradeVal = parseFloat(g.grade);
+
+      if (!isNaN(gradeVal)) {
+        const key = `${g.semester}-${g.subject}`;
+        const unitValStr = unitMap[key];
+
+        if (!unitValStr || unitValStr.trim() === "" || unitValStr === "-") {
+          return "---";
+        }
+
+        const unitVal = parseFloat(unitValStr);
+
+        if (isNaN(unitVal)) {
+          return "---";
+        }
+
+        if (unitVal > 0) {
+          totalWeightedGrades += gradeVal * unitVal;
+          totalUnits += unitVal;
+        }
+      }
+    }
+
+    if (totalUnits === 0) return "---";
+    return (totalWeightedGrades / totalUnits).toFixed(4);
+  };
+
+  const overallStats = useMemo(() => {
+    const totalGWAStr = calculateGWA(grades, units);
+    let totalUnits = 0;
+    grades.forEach((g: Grade) => {
+      const u = parseFloat(units[`${g.semester}-${g.subject}`] || "0");
+      if (!isNaN(u)) totalUnits += u;
+    });
+    let bestSem = "N/A",
+      bestGWA = 5.0;
+    Object.entries(groupedGrades).forEach(([sem, items]) => {
+      const semGWAStr = calculateGWA(items, units);
+      if (semGWAStr !== "---") {
+        const semGWA = parseFloat(semGWAStr);
+        if (semGWA < bestGWA) {
+          bestGWA = semGWA;
+          bestSem = sem;
+        }
+      }
+    });
+    let honor: string | null = null;
+    if (totalGWAStr !== "---") {
+      const gwa = parseFloat(totalGWAStr);
+      const hasLowGrade = grades.some((g: Grade) => {
+        const val = parseFloat(g.grade);
+        return !isNaN(val) && val > 3.0;
+      });
+      if (!hasLowGrade) {
+        if (gwa <= 1.25) honor = "Summa Cum Laude";
+        else if (gwa <= 1.45) honor = "Magna Cum Laude";
+        else if (gwa <= 1.75) honor = "Cum Laude";
+      }
+    }
+    return {
+      totalGWA:
+        totalGWAStr === "---" ? "---" : parseFloat(totalGWAStr).toFixed(4),
+      totalUnits,
+      bestSem,
+      bestGWA: bestGWA === 5.0 ? "---" : bestGWA.toFixed(4),
+      honor,
+    };
+  }, [grades, units, groupedGrades]);
+
+  const handleUnitChange = (semester: string, subject: string, val: string) => {
+    setUnits((prev) => ({ ...prev, [`${semester}-${subject}`]: val }));
+  };
+
+  return (
+    <div className="min-h-screen w-full flex items-start md:items-center justify-center p-4 relative overflow-y-auto font-sans">
+      {/* Background Orbs */}
+      <div className="fixed top-[-5%] left-[-5%] w-[40%] h-[40%] bg-blue-500/10 rounded-full blur-[100px] animate-pulse pointer-events-none"></div>
+      <div className="fixed bottom-[-5%] right-[-5%] w-[40%] h-[40%] bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none"></div>
+
+      <GlassCard className="w-full max-w-5xl min-h-[600px] flex flex-col md:flex-row overflow-hidden relative z-10 border border-white shadow-xl rounded-[24px] my-4 md:my-0">
+        {/* SIDEBAR */}
+        <div className="w-full md:w-[320px] p-6 border-b md:border-b-0 md:border-r border-white/40 flex flex-col bg-white/40 backdrop-blur-xl">
+          <div className="mb-8">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-10 h-10 rounded-[12px] bg-blue-600 text-white flex items-center justify-center shadow-lg shadow-blue-500/30">
+                <IoSchool size={20} />
+              </div>
+              <h1 className="text-xl font-black text-slate-800 tracking-tight">
+                iBU Sync
+              </h1>
+            </div>
+            <p className="text-xs font-bold text-slate-500 opacity-60 uppercase tracking-widest pl-1">
+              Academic Hub (Turbo Mode)
+            </p>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-3">
+            <Input
+              placeholder="Student Number"
+              icon={<IoPerson size={16} />}
+              value={studentId}
+              onChange={(e) => setStudentId(e.target.value)}
+              disabled={status === AppStatus.LOADING}
+            />
+            <Input
+              type="password"
+              placeholder="Password"
+              icon={<IoKey size={16} />}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              disabled={status === AppStatus.LOADING}
+            />
+
+            {status === AppStatus.ERROR && (
+              <div className="p-3 bg-red-50 border border-red-100 rounded-xl text-red-600 animate-in fade-in slide-in-from-top-2">
+                <div className="flex items-center gap-2">
+                  <IoCloseCircle size={16} />
+                  <span className="text-[10px] font-bold">{errorMessage}</span>
+                </div>
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={status === AppStatus.LOADING}
+              className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-500/30 active:scale-[0.97]"
+            >
+              {status === AppStatus.LOADING ? (
+                <IoSyncOutline className="animate-spin" size={18} />
+              ) : (
+                <>
+                  SYNC NOW <IoRocket />
+                </>
+              )}
+            </button>
+          </form>
+
+          <div className="mt-auto pt-6 border-t border-white/40 space-y-2">
+            <button
+              onClick={() => setShowGradingScale(true)}
+              className="w-full py-3 px-4 rounded-xl bg-white/60 border border-white text-slate-700 text-[10px] font-black uppercase tracking-widest flex items-center justify-between hover:bg-white shadow-sm transition-all"
+            >
+              <span className="flex items-center gap-2">
+                <IoBook size={14} /> Grading Scale
+              </span>
+              <IoChevronForward />
+            </button>
+            <button
+              onClick={() => setShowPrivacy(true)}
+              className="w-full py-3 px-4 rounded-xl bg-white/60 border border-white text-slate-700 text-[10px] font-black uppercase tracking-widest flex items-center justify-between hover:bg-white shadow-sm transition-all"
+            >
+              <span className="flex items-center gap-2">
+                <IoShieldCheckmarkOutline size={14} /> Data Privacy
+              </span>
+              <IoChevronForward />
+            </button>
+            <button
+              onClick={() => setShowFeedback(true)}
+              className="w-full py-3 px-4 rounded-xl bg-white/60 border border-white text-slate-700 text-[10px] font-black uppercase tracking-widest flex items-center justify-between hover:bg-white shadow-sm transition-all"
+            >
+              <span className="flex items-center gap-2">
+                <IoChatboxEllipsesOutline size={14} /> Send Feedback
+              </span>
+              <IoChevronForward />
+            </button>
+
+            <div className="flex items-center justify-between text-[10px] font-black p-3 rounded-xl bg-white/50 border border-white mt-4">
+              <div className="flex flex-col">
+                <span className="text-slate-400 uppercase tracking-tighter">
+                  dev by
+                </span>
+                <span className="text-blue-600 text-xs">HANTECK</span>
+              </div>
+              <a
+                href="https://hanteck.online"
+                target="_blank"
+                rel="noreferrer"
+                className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center shadow-lg hover:scale-110 transition-transform"
+              >
+                <IoGlobeOutline size={16} />
+              </a>
+            </div>
+          </div>
+        </div>
+
+        {/* CONTENT AREA */}
+        <div className="flex-1 p-6 md:p-8 bg-white/20 overflow-y-auto custom-scrollbar">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-xl font-black text-slate-800 tracking-tight">
+              Academic History
+            </h2>
+            {status === AppStatus.SUCCESS && (
+              <button
+                onClick={() => {
+                  setGrades([]);
+                  setStatus(AppStatus.IDLE);
+                  setStudentId("");
+                  setPassword("");
+                }}
+                className="p-3 rounded-xl bg-white hover:bg-slate-50 text-slate-600 shadow-md active:scale-[0.97]"
+              >
+                <IoRefresh size={18} />
+              </button>
+            )}
+          </div>
+
+          {/* GWA Calculation Notice */}
+          {status === AppStatus.SUCCESS && (
+            <div className="bg-blue-50/80 backdrop-blur-sm border border-blue-200 rounded-2xl p-4 mb-6 flex items-start gap-4 shadow-sm animate-in slide-in-from-top-2">
+              <div className="text-blue-600 mt-0.5 shrink-0 bg-white rounded-full p-1 shadow-sm">
+                <IoInformationCircleOutline size={22} />
+              </div>
+              <div>
+                <h4 className="text-xs font-black text-blue-900 uppercase tracking-wide mb-1">
+                  Calculation Required
+                </h4>
+                <p className="text-xs text-blue-800/80 font-medium leading-relaxed">
+                  Some subjects do not have units assigned automatically. Please{" "}
+                  <strong>enter the units</strong> manually for each subject in
+                  the list below to generate your GWA.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {status === AppStatus.SUCCESS && (
+            <div className="animate-in slide-in-from-bottom-4 duration-500 mb-6">
+              {overallStats.honor && (
+                <div className="mb-4 p-4 rounded-2xl bg-gradient-to-r from-yellow-400 via-orange-500 to-red-500 text-white shadow-lg flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <div className="p-3 bg-white/20 rounded-xl backdrop-blur-sm">
+                      <IoStar size={24} />
+                    </div>
+                    <div>
+                      <div className="text-[10px] font-bold uppercase tracking-widest opacity-90">
+                        Running for Honors
+                      </div>
+                      <div className="text-2xl font-black tracking-tight">
+                        {overallStats.honor}
+                      </div>
+                    </div>
+                  </div>
+                  <IoRibbon size={48} className="opacity-30" />
+                </div>
+              )}
+
+              <div className="grid grid-cols-3 gap-3 mb-4">
+                <div className="bg-gradient-to-br from-blue-600 to-indigo-600 rounded-2xl p-4 text-white shadow-lg shadow-blue-500/20">
+                  <div className="flex items-center gap-2 opacity-80 mb-1">
+                    <IoTrendingUp size={14} />
+                    <span className="text-[10px] font-black uppercase tracking-widest">
+                      Overall GWA
+                    </span>
+                  </div>
+                  <div className="text-2xl font-black tracking-tight">
+                    {overallStats.totalGWA}
+                  </div>
+                </div>
+                <div className="bg-white rounded-2xl p-4 border border-white/60 shadow-sm">
+                  <div className="flex items-center gap-2 text-slate-400 mb-1">
+                    <IoLayers size={14} />
+                    <span className="text-[10px] font-black uppercase tracking-widest">
+                      Total Units
+                    </span>
+                  </div>
+                  <div className="text-2xl font-black text-slate-700">
+                    {overallStats.totalUnits}
+                  </div>
+                </div>
+                <div className="bg-white rounded-2xl p-4 border border-white/60 shadow-sm">
+                  <div className="flex items-center gap-2 text-slate-400 mb-1">
+                    <IoRibbon size={14} />
+                    <span className="text-[10px] font-black uppercase tracking-widest">
+                      Best Sem
+                    </span>
+                  </div>
+                  <div className="text-sm font-black text-slate-700 truncate">
+                    {overallStats.bestSem}
+                  </div>
+                  <div className="text-[10px] font-bold text-emerald-500">
+                    GWA: {overallStats.bestGWA}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-4">
+            {sortedSemesterEntries.map(([semester, items]) => {
+              const semGWA = calculateGWA(items, units);
+              return (
+                <div
+                  key={semester}
+                  className="rounded-[1.5rem] bg-white/40 border border-white/60 shadow-sm overflow-hidden transition-all"
+                >
+                  <button
+                    onClick={() =>
+                      setExpandedSemesters((p) => ({
+                        ...p,
+                        [semester]: !p[semester],
+                      }))
+                    }
+                    className="w-full p-4 flex items-center justify-between hover:bg-white/40 transition-colors"
+                  >
+                    <div className="flex flex-col items-start gap-1">
+                      <span className="font-black text-slate-800 flex items-center gap-2 text-sm">
+                        <div className="w-8 h-8 rounded-lg bg-blue-600/10 text-blue-600 flex items-center justify-center">
+                          <IoSchool size={16} />
+                        </div>
+                        {semester}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-2 bg-indigo-600 text-white px-3 py-1.5 rounded-lg shadow-sm">
+                        <IoCalculator size={12} className="opacity-50" />
+                        <span className="text-[10px] font-medium opacity-70 uppercase tracking-wide">
+                          GWA
+                        </span>
+                        <span className="text-xs font-bold">{semGWA}</span>
+                      </div>
+                      {expandedSemesters[semester] ? (
+                        <IoChevronDown size={18} className="text-slate-400" />
+                      ) : (
+                        <IoChevronForward
+                          size={18}
+                          className="text-slate-400"
+                        />
+                      )}
+                    </div>
+                  </button>
+
+                  {expandedSemesters[semester] && (
+                    <div className="px-4 pb-4 space-y-2">
+                      <div className="flex text-[10px] font-bold text-slate-400 px-4 uppercase tracking-widest">
+                        <div className="flex-1">Subject</div>
+                        <div className="w-14 text-center">Unit</div>
+                        <div className="w-20 text-center">Grade / Equiv</div>
+                      </div>
+                      {items.map((g, i) => (
+                        <div
+                          key={i}
+                          className="flex justify-between items-center p-3 rounded-xl bg-white border border-white shadow-sm hover:translate-x-1 transition-transform"
+                        >
+                          <div className="flex-1 min-w-0 pr-2">
+                            <span className="text-slate-700 font-bold text-xs block truncate leading-tight">
+                              {g.subject}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <input
+                              type="number"
+                              className="w-12 h-9 rounded-lg bg-slate-50 border border-slate-200 text-center text-xs font-bold text-slate-600 focus:outline-none focus:border-blue-500 transition-all"
+                              placeholder="-"
+                              value={units[`${g.semester}-${g.subject}`] || ""}
+                              onChange={(e) =>
+                                handleUnitChange(
+                                  g.semester,
+                                  g.subject,
+                                  e.target.value
+                                )
+                              }
+                            />
+                            <div className="flex flex-col items-center justify-center text-white bg-blue-600 w-20 h-9 rounded-lg shadow-md shadow-blue-500/20">
+                              <span className="text-xs font-black tracking-tight leading-none">
+                                {g.grade}
+                              </span>
+                              {g.equivalent && g.equivalent !== "N/A" && (
+                                <span className="text-[8px] font-medium opacity-80 leading-none mt-0.5">
+                                  {g.equivalent}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {status === AppStatus.IDLE && (
+              <div className="h-[350px] flex flex-col items-center justify-center text-slate-400">
+                <div className="w-20 h-20 bg-white/40 rounded-full flex items-center justify-center mb-4 border border-white shadow-inner">
+                  <IoSyncOutline
+                    size={32}
+                    className="opacity-20 animate-pulse"
+                  />
+                </div>
+                <p className="font-black text-lg text-slate-600 uppercase tracking-widest">
+                  Ready to Sync
+                </p>
+                <p className="text-xs font-medium opacity-50 mt-1 max-w-[200px] text-center">
+                  Enter your credentials to load history and calculate GWA.
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* MODALS (Grading Scale, Privacy, Feedback) */}
+        {showGradingScale && (
+          <div className="absolute inset-0 bg-white/95 backdrop-blur-3xl z-30 p-8 overflow-y-auto animate-in slide-in-from-right duration-500">
+            <div className="max-w-2xl mx-auto">
+              <div className="flex items-center justify-between mb-8">
+                <h2 className="text-xl font-black text-slate-800 flex items-center gap-3">
+                  <IoBook className="text-blue-600" /> Grading Reference
+                </h2>
+                <button
+                  onClick={() => setShowGradingScale(false)}
+                  className="p-3 bg-slate-100 rounded-xl hover:bg-slate-200 text-slate-800"
+                >
+                  <IoChevronDown size={20} />
+                </button>
+              </div>
+              <table className="w-full text-left">
+                <thead className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] border-b border-slate-100">
+                  <tr>
+                    <th className="py-3 px-2">Rating</th>
+                    <th className="py-3 px-2">Grade</th>
+                    <th className="py-3 px-2 text-right">Equiv</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-xs">
+                  {GRADING_SCALE.map((item, idx) => (
+                    <tr
+                      key={idx}
+                      className="hover:bg-blue-50 transition-colors"
+                    >
+                      <td className="py-3 px-2 font-bold text-slate-700">
+                        {item.rating}
+                      </td>
+                      <td className="py-3 px-2 font-black text-blue-600">
+                        {item.grade}
+                      </td>
+                      <td className="py-3 px-2 text-right font-mono text-slate-500 font-bold">
+                        {item.eq}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {showPrivacy && (
+          <div className="absolute inset-0 bg-white/95 backdrop-blur-3xl z-30 p-8 overflow-y-auto animate-in slide-in-from-right duration-500">
+            <div className="max-w-2xl mx-auto">
+              <div className="flex items-center justify-between mb-8">
+                <h2 className="text-xl font-black text-slate-800 flex items-center gap-3">
+                  <IoShieldCheckmarkOutline className="text-blue-600" /> Data
+                  Privacy Policy
+                </h2>
+                <button
+                  onClick={() => setShowPrivacy(false)}
+                  className="p-3 bg-slate-100 rounded-xl hover:bg-slate-200 text-slate-800"
+                >
+                  <IoChevronDown size={20} />
+                </button>
+              </div>
+              <div className="space-y-6 text-slate-600">
+                <div className="p-4 bg-blue-50 rounded-2xl border border-blue-100">
+                  <div className="flex items-start gap-3">
+                    <div className="p-2 bg-blue-600 text-white rounded-lg shrink-0">
+                      <IoLockClosedOutline size={20} />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-blue-900 text-sm mb-1">
+                        We respect your privacy
+                      </h3>
+                      <p className="text-xs text-blue-700/80 leading-relaxed">
+                        Your data is handled with maximum security using
+                        ephemeral sessions.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <div className="space-y-4">
+                  <div className="flex gap-4">
+                    <IoEyeOffOutline
+                      size={24}
+                      className="text-slate-400 mt-1"
+                    />
+                    <div>
+                      <h4 className="font-bold text-slate-800 text-sm">
+                        No Password Storage
+                      </h4>
+                      <p className="text-xs mt-1">
+                        Passwords are never saved in any database.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex gap-4">
+                    <IoServerOutline
+                      size={24}
+                      className="text-slate-400 mt-1"
+                    />
+                    <div>
+                      <h4 className="font-bold text-slate-800 text-sm">
+                        Data Handling
+                      </h4>
+                      <p className="text-xs mt-1">
+                        Records exist only for the duration of your browser
+                        session.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showFeedback && (
+          <div className="absolute inset-0 bg-white/95 backdrop-blur-3xl z-30 p-8 overflow-y-auto animate-in slide-in-from-right duration-500">
+            <div className="max-w-2xl mx-auto">
+              <div className="flex items-center justify-between mb-8">
+                <h2 className="text-xl font-black text-slate-800 flex items-center gap-3">
+                  <IoChatboxEllipsesOutline className="text-blue-600" /> Send
+                  Feedback
+                </h2>
+                <button
+                  onClick={() => setShowFeedback(false)}
+                  className="p-3 bg-slate-100 rounded-xl hover:bg-slate-200 text-slate-800"
+                >
+                  <IoChevronDown size={20} />
+                </button>
+              </div>
+
+              {feedbackSuccess ? (
+                <div className="p-8 bg-green-50 border border-green-100 rounded-3xl flex flex-col items-center justify-center text-center animate-in zoom-in duration-300">
+                  <div className="w-16 h-16 bg-green-500 rounded-full flex items-center justify-center text-white mb-4 shadow-lg shadow-green-500/30">
+                    <IoCheckmarkCircle size={32} />
+                  </div>
+                  <h3 className="text-xl font-black text-green-800 mb-2">
+                    Thank You!
+                  </h3>
+                  <p className="text-sm text-green-700 font-medium">
+                    Your feedback helps us improve iBU Sync.
+                  </p>
+                </div>
+              ) : (
+                <form onSubmit={handleFeedbackSubmit} className="space-y-6">
+                  <div className="p-4 bg-blue-50 rounded-2xl border border-blue-100">
+                    <p className="text-xs text-blue-800 leading-relaxed font-medium">
+                      Found a bug? Have a feature request? Or just want to say
+                      hi? We'd love to hear from you.
+                    </p>
+                  </div>
+                  <div>
+                    <textarea
+                      className="w-full h-40 p-4 rounded-2xl bg-white border border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 outline-none transition-all resize-none text-sm font-medium text-slate-700"
+                      placeholder="Type your message here..."
+                      value={feedbackMsg}
+                      onChange={(e) => setFeedbackMsg(e.target.value)}
+                      required
+                    ></textarea>
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={isSubmittingFeedback || !feedbackMsg.trim()}
+                    className="w-full py-4 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-500/30 active:scale-[0.98]"
+                  >
+                    {isSubmittingFeedback ? (
+                      <IoSyncOutline className="animate-spin" size={20} />
+                    ) : (
+                      <>
+                        Send Message <IoSend />
+                      </>
+                    )}
+                  </button>
+                </form>
+              )}
+            </div>
+          </div>
+        )}
+      </GlassCard>
+
+      {/* SYNCING MODAL */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/70 backdrop-blur-md p-4">
+          <div className="bg-white rounded-[2rem] p-8 max-w-xs w-full text-center">
+            <div className="relative w-20 h-20 mx-auto mb-6">
+              <div className="absolute inset-0 border-4 border-blue-50 rounded-full"></div>
+              <div className="absolute inset-0 border-4 border-blue-600 rounded-full border-t-transparent animate-spin"></div>
+              <div className="absolute inset-0 flex items-center justify-center text-blue-600">
+                <IoSyncOutline size={32} />
+              </div>
+            </div>
+            <h2 className="text-lg font-black text-slate-800 mb-1">
+              Synchronizing
+            </h2>
+            <div className="flex items-center justify-center gap-2 mb-8 text-blue-600/80">
+              <IoTimeOutline size={14} />
+              <span className="font-mono text-sm font-bold">
+                {formatDuration(elapsedTime)}
+              </span>
+            </div>
+            <p className="text-xs font-bold text-slate-400 mb-8 tracking-wide">
+              {statusMessage}
+            </p>
+            <div className="space-y-3">
+              <Step
+                label="Connecting"
+                active={elapsedTime < 5}
+                done={elapsedTime >= 5}
+              />
+              <Step
+                label="Authenticating"
+                active={elapsedTime >= 5 && elapsedTime < 25}
+                done={elapsedTime >= 25}
+              />
+              <Step
+                label="Extracting Grades"
+                active={elapsedTime >= 25}
+                done={false}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+interface StepProps {
+  label: string;
+  active: boolean;
+  done: boolean;
+}
+
+const Step: React.FC<StepProps> = ({ label, active, done }) => (
+  <div
+    className={`flex items-center gap-3 p-4 rounded-xl transition-all duration-500 ${
+      active
+        ? "bg-blue-600 text-white shadow-lg translate-x-1"
+        : "bg-slate-50 opacity-40"
+    }`}
+  >
+    {done ? (
+      <IoCheckmarkCircle size={20} className="text-emerald-400" />
+    ) : (
+      <div
+        className={`w-5 h-5 rounded-full border-2 ${
+          active
+            ? "border-white border-t-transparent animate-spin"
+            : "border-slate-300"
+        }`}
+      ></div>
+    )}
+    <span className="text-[10px] font-black uppercase tracking-widest">
+      {label}
+    </span>
+  </div>
+);
+
+export default App;

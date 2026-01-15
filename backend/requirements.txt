@@ -1,0 +1,4 @@
+flask
+flask-cors
+selenium
+undetected-chromedriver

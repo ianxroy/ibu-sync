@@ -1,0 +1,26 @@
+{
+  "version": 2,
+  "buildCommand": "npm install --legacy-peer-deps && npm run build",
+  "installCommand": "npm install --legacy-peer-deps",
+  "outputDirectory": "dist",
+  "functions": {
+    "api/scrape.ts": {
+      "maxDuration": 60,
+      "memory": 2048
+    },
+    "api/feedback.ts": {
+      "maxDuration": 10,
+      "memory": 128
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/$1"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}

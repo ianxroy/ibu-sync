@@ -1,0 +1,42 @@
+{
+  "name": "ibu-grade-sync",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "vercel-build": "npm run build",
+    "server": "node server.js"
+  },
+  "dependencies": {
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "react-icons": "5.0.1",
+    "framer-motion": "10.16.0",
+    "@sparticuz/chromium-min": "123.0.0",
+    "puppeteer-core": "22.6.0",
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "selenium-webdriver": "^4.16.0"
+  },
+  "devDependencies": {
+    "@types/react": "18.2.0",
+    "@types/react-dom": "18.2.0",
+    "@types/node": "20.10.0",
+    "@vitejs/plugin-react": "4.0.4",
+    "autoprefixer": "10.4.16",
+    "postcss": "8.4.31",
+    "tailwindcss": "3.3.5",
+    "typescript": "5.2.2",
+    "vite": "4.5.0",
+    "@vercel/node": "3.0.0",
+    "@types/express": "^4.17.21",
+    "@types/cors": "^2.8.17",
+    "@types/selenium-webdriver": "^4.1.21"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

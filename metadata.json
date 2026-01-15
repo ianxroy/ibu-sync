@@ -1,0 +1,5 @@
+{
+  "name": "iBU Grade Sync",
+  "description": "A premium iOS 26-style interface for syncing and visualizing student grades using a Node.js Selenium scraper.",
+  "requestFramePermissions": []
+}
