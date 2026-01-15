@@ -61,12 +61,38 @@ app.post("/api/scrape", async (req, res) => {
   console.log(`[Scraper] Starting sync for ${studentId}...`);
 
   const options = new chrome.Options();
+
+  // --- STEALTH & EVASION CONFIGURATION ---
+
+  // 1. Basic Headless Mode (New architecture is more stealthy)
   options.addArguments("--headless=new");
+
+  // 2. Critical: Disable the "AutomationControlled" feature which sets navigator.webdriver = true
   options.addArguments("--disable-blink-features=AutomationControlled");
+
+  // 3. Spoof User Agent to look like a real Desktop Chrome browser
+  options.addArguments(
+    "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+  );
+
+  // 4. Standard container/stability flags
   options.addArguments("--no-sandbox");
   options.addArguments("--disable-dev-shm-usage");
   options.addArguments("--disable-gpu");
-  options.addArguments("--window-size=1280,800");
+  options.addArguments("--window-size=1920,1080");
+  options.addArguments("--start-maximized");
+  options.addArguments("--disable-infobars");
+
+  // 5. Exclude the "Enable Automation" switch to hide the "Chrome is being controlled..." bar
+  options.excludeSwitches("enable-automation");
+
+  // 6. Turn off automation extension
+  options.setUserPreferences({
+    credentials_enable_service: false,
+    "profile.password_manager_enabled": false,
+    useAutomationExtension: false,
+    excludeSwitches: ["enable-automation"],
+  });
 
   // In some environments, you must explicitly point to the Chrome binary
   if (process.env.CHROME_BIN) {
@@ -81,8 +107,22 @@ app.post("/api/scrape", async (req, res) => {
       .setChromeOptions(options)
       .build();
 
+    // 7. Extra Measure: Manually delete navigator.webdriver via CDP command (if possible) or Script
+    // Doing this before loading the target page helps in some older driver versions
+    try {
+      await driver.executeScript(
+        "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+      );
+    } catch (e) {
+      // Ignore if this fails, the flag above handles it mostly
+    }
+
     // 1. Authentication
-    await driver.get("https://systems.bicol-u.edu.ph/ibu-beta/login");
+    const LOGIN_URL = "https://systems.bicol-u.edu.ph/ibu-beta/login";
+    await driver.get(LOGIN_URL);
+    console.log(
+      `[Link Log] Accessed Login Page: ${await driver.getCurrentUrl()}`
+    );
 
     const idInput = await driver.wait(
       until.elementLocated(By.id("student-id-1")),
@@ -96,9 +136,16 @@ app.post("/api/scrape", async (req, res) => {
 
     // Wait for login success
     await driver.wait(until.urlContains("ibu-beta"), 20000);
+    console.log(
+      `[Link Log] Post-Login URL (Dashboard): ${await driver.getCurrentUrl()}`
+    );
 
     // 2. Navigation
-    await driver.get("https://systems.bicol-u.edu.ph/ibu-beta/grades");
+    const GRADES_URL = "https://systems.bicol-u.edu.ph/ibu-beta/grades";
+    await driver.get(GRADES_URL);
+    console.log(
+      `[Link Log] Accessed Grades Page: ${await driver.getCurrentUrl()}`
+    );
 
     // 3. Scrape Grades
     const dropdown = await driver.wait(
@@ -163,6 +210,18 @@ app.post("/api/scrape", async (req, res) => {
     res.json(finalResults);
   } catch (error) {
     console.error("[Scraper] Error:", error.message);
+
+    // Attempt to log the URL where the error occurred
+    if (driver) {
+      try {
+        console.log(
+          `[Link Log] Error occurred at: ${await driver.getCurrentUrl()}`
+        );
+      } catch (e) {
+        console.log("[Link Log] Could not retrieve URL during error.");
+      }
+    }
+
     res.status(500).json({
       error: error.message.includes("timeout")
         ? "The portal is taking too long to respond."
