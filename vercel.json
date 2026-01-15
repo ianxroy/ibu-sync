@@ -1,25 +1,18 @@
 {
   "version": 2,
+  "env": {
+    "NODE_VERSION": "18"
+  },
   "functions": {
-    "api/scrape.ts": {
-      "maxDuration": 60,
-      "memory": 2048
-    },
     "api/feedback.ts": {
-      "maxDuration": 10,
-      "memory": 128
+      "memory": 128,
+      "maxDuration": 10
+    },
+    "api/scrape.ts": {
+      "memory": 2048,
+      "maxDuration": 60
     }
   },
-  "rewrites": [
-    {
-      "source": "/api/(.*)",
-      "destination": "/api/$1"
-    },
-    {
-      "source": "/(.*)",
-      "destination": "/index.html"
-    }
-  ],
   "headers": [
     {
       "source": "/api/(.*)",
@@ -37,7 +30,18 @@
       ]
     }
   ],
-  "env": {
-    "NODE_VERSION": "18"
-  }
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/$1"
+    },
+    {
+      "source": "/privacy-policy",
+      "destination": "/privacy.html"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
 }
