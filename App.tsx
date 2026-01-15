@@ -27,6 +27,9 @@ import {
   IoInformationCircleOutline,
   IoFlashOutline,
   IoMedal,
+  IoOptions,
+  IoAlertCircleOutline,
+  IoAnalytics,
 } from "react-icons/io5";
 import { GlassCard } from "./components/ui/GlassCard";
 import { Input } from "./components/ui/Input";
@@ -107,6 +110,9 @@ const App: React.FC = () => {
     useState<boolean>(false);
   const [feedbackSuccess, setFeedbackSuccess] = useState<boolean>(false);
   const [units, setUnits] = useState<Record<string, string>>({});
+
+  // Forecasting State
+  const [remainingUnits, setRemainingUnits] = useState<number>(30);
 
   // State for Server Selection
   const [activeServer, setActiveServer] = useState<ServerNode | null>(null);
@@ -292,7 +298,8 @@ const App: React.FC = () => {
 
   const calculateGWA = (
     gradeList: Grade[],
-    unitMap: Record<string, string>
+    unitMap: Record<string, string>,
+    ignoreMissing: boolean = false
   ): string => {
     let totalWeightedGrades = 0;
     let totalUnits = 0;
@@ -300,8 +307,14 @@ const App: React.FC = () => {
     for (const g of gradeList) {
       const gradeStr = g.grade.trim().toUpperCase();
 
-      if (["N/A", "INC", "INCOMPLETE", "", "-"].includes(gradeStr)) {
-        return "---";
+      // Check for missing/invalid grades
+      const isInvalid = ["N/A", "INC", "INCOMPLETE", "", "-"].includes(
+        gradeStr
+      );
+
+      if (isInvalid) {
+        if (ignoreMissing) continue; // Skip if we are running partial calc
+        return "---"; // Return empty if strict mode
       }
 
       const gradeVal = parseFloat(g.grade);
@@ -311,12 +324,15 @@ const App: React.FC = () => {
         const unitValStr = unitMap[key];
 
         if (!unitValStr || unitValStr.trim() === "" || unitValStr === "-") {
+          // If unit is missing, strict mode fails. Partial mode skips.
+          if (ignoreMissing) continue;
           return "---";
         }
 
         const unitVal = parseFloat(unitValStr);
 
         if (isNaN(unitVal)) {
+          if (ignoreMissing) continue;
           return "---";
         }
 
@@ -332,16 +348,31 @@ const App: React.FC = () => {
   };
 
   const overallStats = useMemo(() => {
-    const totalGWAStr = calculateGWA(grades, units);
+    // 1. Calculate Running GWA (ignoring missing)
+    const runningGWAStr = calculateGWA(grades, units, true);
+    // 2. Calculate Strict GWA (fail on missing) to detect if incomplete
+    const strictGWAStr = calculateGWA(grades, units, false);
+
+    const isPartial = strictGWAStr === "---" && runningGWAStr !== "---";
+    const totalGWA = runningGWAStr;
+
     let totalUnits = 0;
+    let hasDisqualification = false;
+
     grades.forEach((g: Grade) => {
       const u = parseFloat(units[`${g.semester}-${g.subject}`] || "0");
-      if (!isNaN(u)) totalUnits += u;
+      if (!isNaN(u) && !isNaN(parseFloat(g.grade))) totalUnits += u;
+
+      const gradeVal = parseFloat(g.grade);
+      if (!isNaN(gradeVal) && gradeVal > 3.0) {
+        hasDisqualification = true;
+      }
     });
+
     let bestSem = "N/A",
       bestGWA = 5.0;
     Object.entries(groupedGrades).forEach(([sem, items]) => {
-      const semGWAStr = calculateGWA(items, units);
+      const semGWAStr = calculateGWA(items, units, true);
       if (semGWAStr !== "---") {
         const semGWA = parseFloat(semGWAStr);
         if (semGWA < bestGWA) {
@@ -350,26 +381,14 @@ const App: React.FC = () => {
         }
       }
     });
-    let honor: string | null = null;
-    if (totalGWAStr !== "---") {
-      const gwa = parseFloat(totalGWAStr);
-      const hasLowGrade = grades.some((g: Grade) => {
-        const val = parseFloat(g.grade);
-        return !isNaN(val) && val > 3.0;
-      });
-      if (!hasLowGrade) {
-        if (gwa <= 1.25) honor = "Summa Cum Laude";
-        else if (gwa <= 1.45) honor = "Magna Cum Laude";
-        else if (gwa <= 1.75) honor = "Cum Laude";
-      }
-    }
+
     return {
-      totalGWA:
-        totalGWAStr === "---" ? "---" : parseFloat(totalGWAStr).toFixed(4),
+      totalGWA: totalGWA === "---" ? "---" : parseFloat(totalGWA).toFixed(4),
       totalUnits,
       bestSem,
       bestGWA: bestGWA === 5.0 ? "---" : bestGWA.toFixed(4),
-      honor,
+      isPartial,
+      hasDisqualification,
     };
   }, [grades, units, groupedGrades]);
 
@@ -377,7 +396,6 @@ const App: React.FC = () => {
   const distinctions = useMemo(() => {
     if (grades.length === 0) return [];
 
-    // 1. Sort Semesters Oldest to Newest
     const sorted = Object.keys(groupedGrades).sort((a, b) => {
       const orderA = getSemesterOrder(a);
       const orderB = getSemesterOrder(b);
@@ -386,7 +404,6 @@ const App: React.FC = () => {
       return orderA.semOrder - orderB.semOrder;
     });
 
-    // 2. Find start: First "2nd Semester" (of 1st Year)
     let startIndex = sorted.findIndex((sem) => {
       const { semOrder } = getSemesterOrder(sem);
       return semOrder === 2; // 2nd Sem
@@ -401,7 +418,6 @@ const App: React.FC = () => {
       color: string;
     }[] = [];
 
-    // 3. Iterate in pairs: (1st Year 2nd Sem & 2nd Year 1st Sem), etc.
     for (let i = startIndex; i < sorted.length - 1; i += 2) {
       const sem1 = sorted[i];
       const sem2 = sorted[i + 1];
@@ -410,17 +426,15 @@ const App: React.FC = () => {
         ...(groupedGrades[sem2] || []),
       ];
 
-      // Disqualification Check: No grade > 2.4 (Grades like 2.5, 2.6 ... 3.0, 5.0 disqualify)
       const disqualified = batchGrades.some((g) => {
         const val = parseFloat(g.grade);
-        // If val is > 2.4, disqualified.
-        // N/A or INC are ignored here but will cause GWA to be "---" below
         return !isNaN(val) && val > 2.4;
       });
 
       if (disqualified) continue;
 
-      const gwaStr = calculateGWA(batchGrades, units);
+      // Use Strict GWA for Awards (Awards usually require completed grades)
+      const gwaStr = calculateGWA(batchGrades, units, false);
       if (gwaStr === "---") continue;
       const gwa = parseFloat(gwaStr);
 
@@ -441,9 +455,111 @@ const App: React.FC = () => {
       }
     }
 
-    // Return newest distinctions first for UI
     return items.reverse();
   }, [groupedGrades, units, grades]);
+
+  // --- LATIN HONOR FORECASTING ---
+  const honorForecasts = useMemo(() => {
+    if (overallStats.totalGWA === "---") return [];
+
+    const currentGWA = parseFloat(overallStats.totalGWA);
+    const currentUnits = overallStats.totalUnits;
+    const totalUnitsProjected = currentUnits + remainingUnits;
+
+    const honors = [
+      {
+        name: "Summa Cum Laude",
+        cutoff: 1.25,
+        color: "text-yellow-600",
+        bg: "bg-yellow-50 border-yellow-200",
+      },
+      {
+        name: "Magna Cum Laude",
+        cutoff: 1.45,
+        color: "text-blue-600",
+        bg: "bg-blue-50 border-blue-200",
+      },
+      {
+        name: "Cum Laude",
+        cutoff: 1.75,
+        color: "text-emerald-600",
+        bg: "bg-emerald-50 border-emerald-200",
+      },
+    ];
+
+    return honors.map((h) => {
+      if (overallStats.hasDisqualification) {
+        return {
+          ...h,
+          status: "Disqualified",
+          needed: 0,
+          probability: 0,
+          msg: "Grade > 3.0 detected",
+        };
+      }
+      if (currentGWA <= h.cutoff) {
+        return {
+          ...h,
+          status: "On Track",
+          needed: h.cutoff,
+          probability: 98,
+          msg: "Maintain current performance",
+        };
+      }
+      if (remainingUnits <= 0) {
+        return {
+          ...h,
+          status: "Impossible",
+          needed: 0,
+          probability: 0,
+          msg: "Mathematical limit reached",
+        };
+      }
+
+      // Formula: (CurrentGWA * CurrentUnits + RequiredGrade * RemainingUnits) / TotalUnits <= Cutoff
+      // RequiredGrade <= (Cutoff * TotalUnits - CurrentGWA * CurrentUnits) / RemainingUnits
+      const maxTotalPoints = h.cutoff * totalUnitsProjected;
+      const currentPoints = currentGWA * currentUnits;
+      const requiredGrade = (maxTotalPoints - currentPoints) / remainingUnits;
+
+      let prob = 0;
+      let status = "";
+
+      if (requiredGrade < 1.0) {
+        status = "Impossible";
+        prob = 0;
+      } else if (requiredGrade <= 1.1) {
+        status = "Near Impossible";
+        prob = 5;
+      } else if (requiredGrade <= 1.25) {
+        status = "Very Hard";
+        prob = 25;
+      } else if (requiredGrade <= 1.5) {
+        status = "Challenging";
+        prob = 50;
+      } else if (requiredGrade <= 1.75) {
+        status = "Possible";
+        prob = 75;
+      } else if (requiredGrade <= 2.25) {
+        status = "Likely";
+        prob = 90;
+      } else {
+        status = "Very Likely";
+        prob = 99;
+      }
+
+      return {
+        ...h,
+        status,
+        needed: requiredGrade.toFixed(2),
+        probability: prob,
+        msg:
+          requiredGrade < 1.0
+            ? "Requires > 1.0 avg"
+            : `Need avg grade of ${requiredGrade.toFixed(2)}`,
+      };
+    });
+  }, [overallStats, remainingUnits]);
 
   const handleUnitChange = (semester: string, subject: string, val: string) => {
     setUnits((prev) => ({ ...prev, [`${semester}-${subject}`]: val }));
@@ -603,37 +719,34 @@ const App: React.FC = () => {
           )}
 
           {status === AppStatus.SUCCESS && (
-            <div className="animate-in slide-in-from-bottom-4 duration-500 mb-6">
-              {overallStats.honor && (
-                <div className="mb-4 p-4 rounded-2xl bg-gradient-to-r from-yellow-400 via-orange-500 to-red-500 text-white shadow-lg flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <div className="p-3 bg-white/20 rounded-xl backdrop-blur-sm">
-                      <IoStar size={24} />
-                    </div>
-                    <div>
-                      <div className="text-[10px] font-bold uppercase tracking-widest opacity-90">
-                        Running for Honors
-                      </div>
-                      <div className="text-2xl font-black tracking-tight">
-                        {overallStats.honor}
-                      </div>
-                    </div>
-                  </div>
-                  <IoRibbon size={48} className="opacity-30" />
-                </div>
-              )}
+            <div className="animate-in slide-in-from-bottom-4 duration-500 mb-6 space-y-6">
+              {/* MAIN STATS GRID */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="relative overflow-hidden bg-gradient-to-br from-blue-600 to-indigo-600 rounded-2xl p-4 text-white shadow-lg shadow-blue-500/20">
+                  {/* Shine Effect */}
+                  <div className="absolute top-[-50%] right-[-10%] w-20 h-20 bg-white/10 rounded-full blur-xl"></div>
 
-              <div className="grid grid-cols-3 gap-3 mb-6">
-                <div className="bg-gradient-to-br from-blue-600 to-indigo-600 rounded-2xl p-4 text-white shadow-lg shadow-blue-500/20">
                   <div className="flex items-center gap-2 opacity-80 mb-1">
                     <IoTrendingUp size={14} />
                     <span className="text-[10px] font-black uppercase tracking-widest">
                       Overall GWA
                     </span>
                   </div>
-                  <div className="text-2xl font-black tracking-tight">
-                    {overallStats.totalGWA}
+                  <div className="flex items-end gap-2">
+                    <div className="text-2xl font-black tracking-tight leading-none">
+                      {overallStats.totalGWA}
+                    </div>
+                    {overallStats.isPartial && (
+                      <div className="flex items-center gap-1 text-[9px] font-bold bg-white/20 px-1.5 py-0.5 rounded-md mb-1 animate-pulse">
+                        <IoAlertCircleOutline /> Partial
+                      </div>
+                    )}
                   </div>
+                  {overallStats.isPartial && (
+                    <p className="text-[9px] opacity-70 mt-1 font-medium">
+                      Subject to change (Incomplete)
+                    </p>
+                  )}
                 </div>
                 <div className="bg-white rounded-2xl p-4 border border-white/60 shadow-sm">
                   <div className="flex items-center gap-2 text-slate-400 mb-1">
@@ -662,11 +775,114 @@ const App: React.FC = () => {
                 </div>
               </div>
 
-              {/* ACADEMIC DISTINCTIONS */}
+              {/* LATIN HONOR FORECAST */}
+              <div className="bg-white/50 backdrop-blur-md border border-white/60 rounded-[24px] p-6 shadow-sm">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
+                      <IoAnalytics size={18} />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-black text-slate-800">
+                        Latin Honor Forecast
+                      </h3>
+                      <p className="text-[10px] font-medium text-slate-500">
+                        Prediction based on remaining load.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3 bg-white px-3 py-2 rounded-xl border border-slate-100 shadow-sm">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">
+                      Remaining Units
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <IoOptions className="text-slate-300" />
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={remainingUnits}
+                        onChange={(e) =>
+                          setRemainingUnits(parseInt(e.target.value))
+                        }
+                        className="w-24 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                      />
+                      <span className="text-xs font-black text-blue-600 w-6 text-center">
+                        {remainingUnits}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  {honorForecasts.map((h, i) => (
+                    <div
+                      key={i}
+                      className={`flex items-center justify-between p-3 rounded-xl border ${h.bg}`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className={`text-xl ${h.color}`}>
+                          <IoMedal />
+                        </div>
+                        <div>
+                          <div className={`text-xs font-black ${h.color}`}>
+                            {h.name}
+                          </div>
+                          <div className="text-[10px] font-bold opacity-70 text-slate-600">
+                            {h.msg}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col items-end gap-1">
+                        <div
+                          className={`
+                                     px-2 py-1 rounded-lg text-[9px] font-black uppercase tracking-wide
+                                     ${
+                                       h.status.includes("Impossible") ||
+                                       h.status.includes("Disqualified")
+                                         ? "bg-red-100 text-red-600"
+                                         : h.status === "Possible" ||
+                                           h.status === "Likely" ||
+                                           h.status === "Very Likely"
+                                         ? "bg-emerald-100 text-emerald-600"
+                                         : "bg-orange-100 text-orange-600"
+                                     }
+                                 `}
+                        >
+                          {h.status}
+                        </div>
+                        {h.probability > 0 && (
+                          <div className="flex items-center gap-1">
+                            <div className="w-16 h-1.5 bg-black/5 rounded-full overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all duration-1000 ${
+                                  h.probability > 75
+                                    ? "bg-emerald-500"
+                                    : h.probability > 40
+                                    ? "bg-orange-400"
+                                    : "bg-red-400"
+                                }`}
+                                style={{ width: `${h.probability}%` }}
+                              ></div>
+                            </div>
+                            <span className="text-[9px] font-bold text-slate-400">
+                              {h.probability}%
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* ACADEMIC DISTINCTIONS LIST */}
               {distinctions.length > 0 && (
-                <div className="mb-6 animate-in slide-in-from-bottom-6 duration-700 delay-100">
+                <div className="animate-in slide-in-from-bottom-6 duration-700 delay-100">
                   <div className="flex items-center gap-2 mb-3 px-1">
-                    <IoMedal size={18} className="text-yellow-500" />
+                    <IoRibbon size={18} className="text-yellow-500" />
                     <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest">
                       Academic Distinctions
                     </h3>
@@ -715,7 +931,11 @@ const App: React.FC = () => {
 
           <div className="space-y-4">
             {sortedSemesterEntries.map(([semester, items]) => {
-              const semGWA = calculateGWA(items, units);
+              // Semester GWA ignores missing to show current standing
+              const semGWA = calculateGWA(items, units, true);
+              const strictSemGWA = calculateGWA(items, units, false);
+              const isSemPartial = strictSemGWA === "---" && semGWA !== "---";
+
               return (
                 <div
                   key={semester}
@@ -739,13 +959,21 @@ const App: React.FC = () => {
                       </span>
                     </div>
                     <div className="flex items-center gap-4">
-                      <div className="flex items-center gap-2 bg-indigo-600 text-white px-3 py-1.5 rounded-lg shadow-sm">
-                        <IoCalculator size={12} className="opacity-50" />
-                        <span className="text-[10px] font-medium opacity-70 uppercase tracking-wide">
-                          GWA
-                        </span>
-                        <span className="text-xs font-bold">{semGWA}</span>
+                      <div className="flex flex-col items-end">
+                        <div className="flex items-center gap-2 bg-indigo-600 text-white px-3 py-1.5 rounded-lg shadow-sm">
+                          <IoCalculator size={12} className="opacity-50" />
+                          <span className="text-[10px] font-medium opacity-70 uppercase tracking-wide">
+                            GWA
+                          </span>
+                          <span className="text-xs font-bold">{semGWA}</span>
+                        </div>
+                        {isSemPartial && (
+                          <span className="text-[8px] font-bold text-orange-500 mt-1 uppercase tracking-wide">
+                            Running
+                          </span>
+                        )}
                       </div>
+
                       {expandedSemesters[semester] ? (
                         <IoChevronDown size={18} className="text-slate-400" />
                       ) : (
