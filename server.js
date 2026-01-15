@@ -77,16 +77,16 @@ app.post("/api/scrape", async (req, res) => {
 
   const options = new chrome.Options();
 
-  // Minimal flags - sometimes LESS is MORE for stealth
+  // Minimal flags
   options.addArguments("--headless=new");
   options.addArguments("--disable-blink-features=AutomationControlled");
   options.addArguments("--no-sandbox");
   options.addArguments("--disable-dev-shm-usage");
   options.addArguments("--disable-gpu");
-  options.addArguments("--window-size=1366,768"); // Common laptop resolution
+  options.addArguments("--window-size=1366,768");
   options.addArguments("--start-maximized");
 
-  // Real User Agent (Windows 10 Chrome 122)
+  // Real User Agent
   options.addArguments(
     "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
   );
@@ -109,16 +109,11 @@ app.post("/api/scrape", async (req, res) => {
       .build();
 
     // --- CRITICAL: CDP STEALTH INJECTION ---
-    // This executes deeper than standard driver.executeScript
     try {
       const cdp = await driver.createCDPConnection("page");
-
-      // 1. Inject Stealth Scripts on Every Navigation
       await cdp.execute("Page.addScriptToEvaluateOnNewDocument", {
         source: STEALTH_INJECTION,
       });
-
-      // 2. Override User Agent at Protocol Level
       await cdp.execute("Network.setUserAgentOverride", {
         userAgent:
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
@@ -131,7 +126,7 @@ app.post("/api/scrape", async (req, res) => {
 
     const TARGET_URL = "https://systems.bicol-u.edu.ph/ibu-beta/login";
 
-    // Attempt navigation with Retry Logic for CAPTCHA
+    // Attempt navigation with Retry Logic
     let attempts = 0;
     let success = false;
 
@@ -140,26 +135,17 @@ app.post("/api/scrape", async (req, res) => {
       try {
         console.log(`[Link Log] Navigation Attempt ${attempts}: ${TARGET_URL}`);
         await driver.get(TARGET_URL);
-
-        // Wait a moment for redirects
         await randomDelay(2000, 3000);
 
         const url = await driver.getCurrentUrl();
-        console.log(`[Link Log] Current URL: ${url}`);
-
         if (url.includes("captcha") || url.includes(".well-known")) {
-          console.log(
-            "[Scraper] CAPTCHA/WAF detected. Waiting 5s for auto-redirect..."
-          );
-          await randomDelay(5000, 6000); // Sometimes WAFs redirect you after a check
-
-          // Check again
+          console.log("[Scraper] CAPTCHA detected. Waiting for redirect...");
+          await randomDelay(5000, 6000);
           const checkUrl = await driver.getCurrentUrl();
           if (
             checkUrl.includes("captcha") ||
             checkUrl.includes(".well-known")
           ) {
-            console.log("[Scraper] Still stuck. Refreshing page...");
             await driver.navigate().refresh();
             await randomDelay(3000, 5000);
           }
@@ -171,7 +157,6 @@ app.post("/api/scrape", async (req, res) => {
       }
     }
 
-    // Final check before proceeding
     const currentUrl = await driver.getCurrentUrl();
     if (currentUrl.includes("captcha") || currentUrl.includes(".well-known")) {
       throw new Error("CAPTCHA_DETECTED");
@@ -183,24 +168,50 @@ app.post("/api/scrape", async (req, res) => {
       10000
     );
 
-    // Human-like Typing
     await idInput.sendKeys(studentId);
-    await randomDelay(200, 400);
+    await randomDelay(300, 500);
 
     await driver.findElement(By.id("student-password-1")).sendKeys(password);
-    await randomDelay(300, 600);
+    await randomDelay(300, 500);
 
     const submitBtn = await driver.findElement(By.id("submit"));
     await driver.executeScript("arguments[0].click();", submitBtn);
 
     // --- POST LOGIN ---
-    await driver.wait(until.urlContains("ibu-beta"), 20000);
-    console.log(`[Link Log] Login Success: ${await driver.getCurrentUrl()}`);
+    console.log(
+      "[Link Log] Credentials submitted, waiting for Dashboard redirect..."
+    );
+
+    try {
+      // FIX: Wait for exact Dashboard URL (or trailing slash variant)
+      // Do NOT use urlContains("ibu-beta") because the login URL contains it too.
+      await driver.wait(async () => {
+        const url = await driver.getCurrentUrl();
+        return (
+          url === "https://systems.bicol-u.edu.ph/ibu-beta/" ||
+          url === "https://systems.bicol-u.edu.ph/ibu-beta"
+        );
+      }, 20000);
+    } catch (e) {
+      // If timed out, check if we are still on login => INVALID CREDENTIALS
+      const postLoginUrl = await driver.getCurrentUrl();
+      console.log(
+        `[Link Log] Post-login wait timeout. Current URL: ${postLoginUrl}`
+      );
+
+      if (postLoginUrl.includes("/login")) {
+        throw new Error("LOGIN_FAILED"); // Explicit error for frontend to handle
+      }
+      throw e; // Unknown timeout
+    }
+
+    console.log(
+      `[Link Log] Dashboard Reached: ${await driver.getCurrentUrl()}`
+    );
 
     // --- GRADES ---
     await driver.get("https://systems.bicol-u.edu.ph/ibu-beta/grades");
 
-    // Fetch Options
     const dropdown = await driver.wait(
       until.elementLocated(By.id("semesters")),
       15000
@@ -263,7 +274,13 @@ app.post("/api/scrape", async (req, res) => {
   } catch (error) {
     console.error(`[Scraper] Error: ${error.message}`);
 
-    // If it's a captcha block, be honest with the user
+    if (error.message === "LOGIN_FAILED") {
+      return res.status(401).json({
+        error:
+          "Invalid Credentials. Please check your Student ID and Password.",
+      });
+    }
+
     if (error.message.includes("CAPTCHA_DETECTED")) {
       return res.status(403).json({
         error:
