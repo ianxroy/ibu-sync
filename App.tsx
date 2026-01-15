@@ -26,6 +26,7 @@ import {
   IoSend,
   IoInformationCircleOutline,
   IoFlashOutline,
+  IoMedal,
 } from "react-icons/io5";
 import { GlassCard } from "./components/ui/GlassCard";
 import { Input } from "./components/ui/Input";
@@ -372,6 +373,78 @@ const App: React.FC = () => {
     };
   }, [grades, units, groupedGrades]);
 
+  // --- ACADEMIC DISTINCTION LOGIC ---
+  const distinctions = useMemo(() => {
+    if (grades.length === 0) return [];
+
+    // 1. Sort Semesters Oldest to Newest
+    const sorted = Object.keys(groupedGrades).sort((a, b) => {
+      const orderA = getSemesterOrder(a);
+      const orderB = getSemesterOrder(b);
+      if (orderA.startYear !== orderB.startYear)
+        return orderA.startYear - orderB.startYear;
+      return orderA.semOrder - orderB.semOrder;
+    });
+
+    // 2. Find start: First "2nd Semester" (of 1st Year)
+    let startIndex = sorted.findIndex((sem) => {
+      const { semOrder } = getSemesterOrder(sem);
+      return semOrder === 2; // 2nd Sem
+    });
+
+    if (startIndex === -1) return [];
+
+    const items: {
+      period: string;
+      gwa: string;
+      title: string;
+      color: string;
+    }[] = [];
+
+    // 3. Iterate in pairs: (1st Year 2nd Sem & 2nd Year 1st Sem), etc.
+    for (let i = startIndex; i < sorted.length - 1; i += 2) {
+      const sem1 = sorted[i];
+      const sem2 = sorted[i + 1];
+      const batchGrades = [
+        ...(groupedGrades[sem1] || []),
+        ...(groupedGrades[sem2] || []),
+      ];
+
+      // Disqualification Check: No grade > 2.4 (Grades like 2.5, 2.6 ... 3.0, 5.0 disqualify)
+      const disqualified = batchGrades.some((g) => {
+        const val = parseFloat(g.grade);
+        // If val is > 2.4, disqualified.
+        // N/A or INC are ignored here but will cause GWA to be "---" below
+        return !isNaN(val) && val > 2.4;
+      });
+
+      if (disqualified) continue;
+
+      const gwaStr = calculateGWA(batchGrades, units);
+      if (gwaStr === "---") continue;
+      const gwa = parseFloat(gwaStr);
+
+      if (gwa <= 1.45) {
+        items.push({
+          period: `${sem1} & ${sem2}`,
+          gwa: gwaStr,
+          title: "President's Lister",
+          color: "from-yellow-400 to-amber-600",
+        });
+      } else if (gwa <= 1.75) {
+        items.push({
+          period: `${sem1} & ${sem2}`,
+          gwa: gwaStr,
+          title: "Dean's Lister",
+          color: "from-blue-400 to-indigo-600",
+        });
+      }
+    }
+
+    // Return newest distinctions first for UI
+    return items.reverse();
+  }, [groupedGrades, units, grades]);
+
   const handleUnitChange = (semester: string, subject: string, val: string) => {
     setUnits((prev) => ({ ...prev, [`${semester}-${subject}`]: val }));
   };
@@ -550,7 +623,7 @@ const App: React.FC = () => {
                 </div>
               )}
 
-              <div className="grid grid-cols-3 gap-3 mb-4">
+              <div className="grid grid-cols-3 gap-3 mb-6">
                 <div className="bg-gradient-to-br from-blue-600 to-indigo-600 rounded-2xl p-4 text-white shadow-lg shadow-blue-500/20">
                   <div className="flex items-center gap-2 opacity-80 mb-1">
                     <IoTrendingUp size={14} />
@@ -588,6 +661,55 @@ const App: React.FC = () => {
                   </div>
                 </div>
               </div>
+
+              {/* ACADEMIC DISTINCTIONS */}
+              {distinctions.length > 0 && (
+                <div className="mb-6 animate-in slide-in-from-bottom-6 duration-700 delay-100">
+                  <div className="flex items-center gap-2 mb-3 px-1">
+                    <IoMedal size={18} className="text-yellow-500" />
+                    <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest">
+                      Academic Distinctions
+                    </h3>
+                  </div>
+                  <div className="flex gap-4 overflow-x-auto pb-4 -mx-4 px-4 snap-x custom-scrollbar">
+                    {distinctions.map((d, i) => (
+                      <div
+                        key={i}
+                        className={`
+                          snap-center shrink-0 w-[260px] p-5 rounded-2xl text-white shadow-lg relative overflow-hidden
+                          bg-gradient-to-br ${d.color}
+                        `}
+                      >
+                        {/* Decorative shine */}
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-2xl -mr-10 -mt-10 pointer-events-none"></div>
+
+                        <div className="relative z-10">
+                          <div className="flex items-start justify-between mb-4">
+                            <div className="p-2 bg-white/20 backdrop-blur-md rounded-lg">
+                              <IoRibbon size={20} className="text-white" />
+                            </div>
+                            <div className="text-right">
+                              <div className="text-[10px] font-bold opacity-80 uppercase tracking-wider">
+                                GWA
+                              </div>
+                              <div className="text-2xl font-black tracking-tighter leading-none">
+                                {d.gwa}
+                              </div>
+                            </div>
+                          </div>
+
+                          <h4 className="font-black text-lg leading-tight mb-1">
+                            {d.title}
+                          </h4>
+                          <p className="text-[10px] font-medium opacity-80 truncate">
+                            {d.period}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
