@@ -2,6 +2,11 @@ import express from "express";
 import { Builder, By, until, Select } from "selenium-webdriver";
 import chrome from "selenium-webdriver/chrome.js";
 import cors from "cors";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 /**
  * DATA PRIVACY POLICY
@@ -13,6 +18,9 @@ import cors from "cors";
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// Serve static files from the build directory
+app.use(express.static(path.join(__dirname, "dist")));
 
 app.get("/api/health", (req, res) => {
   res
@@ -184,7 +192,6 @@ app.post("/api/scrape", async (req, res) => {
 
     try {
       // FIX: Wait for exact Dashboard URL (or trailing slash variant)
-      // Do NOT use urlContains("ibu-beta") because the login URL contains it too.
       await driver.wait(async () => {
         const url = await driver.getCurrentUrl();
         return (
@@ -193,16 +200,14 @@ app.post("/api/scrape", async (req, res) => {
         );
       }, 20000);
     } catch (e) {
-      // If timed out, check if we are still on login => INVALID CREDENTIALS
       const postLoginUrl = await driver.getCurrentUrl();
       console.log(
         `[Link Log] Post-login wait timeout. Current URL: ${postLoginUrl}`
       );
-
       if (postLoginUrl.includes("/login")) {
-        throw new Error("LOGIN_FAILED"); // Explicit error for frontend to handle
+        throw new Error("LOGIN_FAILED");
       }
-      throw e; // Unknown timeout
+      throw e;
     }
 
     console.log(
@@ -294,6 +299,11 @@ app.post("/api/scrape", async (req, res) => {
   } finally {
     if (driver) await driver.quit();
   }
+});
+
+// All other GET requests not handled before will return our React app
+app.get("*", (req, res) => {
+  res.sendFile(path.join(__dirname, "dist", "index.html"));
 });
 
 const PORT = process.env.PORT || 8080;

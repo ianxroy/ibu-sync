@@ -26,6 +26,9 @@ RUN npm install && npm cache clean --force
 
 COPY . .
 
+# Build the frontend
+RUN npm run build
+
 # Set Port to 8080 as requested
 ENV PORT=8080
 ENV CHROME_BIN=/usr/bin/google-chrome
