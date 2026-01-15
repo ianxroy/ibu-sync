@@ -91,7 +91,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       timeout: 20000,
     });
 
-    await page.waitForSelector("#student-id-1", { timeout: 10000 });
+    await page.waitForSelector("#student-id-1", { timeout: 50000 });
     await page.type("#student-id-1", studentId);
     await page.type("#student-password-1", password);
 
