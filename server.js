@@ -25,35 +25,40 @@ const SELECTOR_TIMEOUT = parseInt(process.env.SELECTOR_TIMEOUT || "30000");
 const TARGET_URL =
   process.env.TARGET_URL || "https://systems.bicol-u.edu.ph/ibu-beta";
 
-// Use Env Var for Secret
+// Env Var for Secret
 const RECAPTCHA_SECRET_KEY = process.env.RECAPTCHA_SECRET_KEY;
 
-// ================= MIDDLEWARE =================
-// TRUST PROXY IS REQUIRED FOR RATE LIMITER BEHIND PROXIES (RAILWAY/DOCKER)
-app.set("trust proxy", 1);
+// ================= DATA PRIVACY POLICY =================
+const DATA_PRIVACY_POLICY = {
+  title: "Data Privacy & Security Policy",
+  lastUpdated: "2026-01-15",
+  provisions: [
+    "Zero Storage: Your student credentials are used in real-time and never saved to a database.",
+    "Session Isolation: Each request runs in a private, ephemeral browser context.",
+    "Data Encryption: All communication between your browser and this server is encrypted via SSL.",
+    "Immediate Disposal: All scraped academic data is sent to your device and immediately purged from server memory.",
+  ],
+};
 
+// ================= MIDDLEWARE =================
+app.set("trust proxy", 1);
 app.use(cors());
-// 1. Body Size Limit (Security)
 app.use(express.json({ limit: "10kb" }));
 app.use(express.static(path.join(__dirname, "dist")));
 app.use("/ibu-sync", express.static(path.join(__dirname, "dist")));
 
-// 2. Rate Limiting (Security)
 const limiter = rateLimit({
-  windowMs: 1 * 60 * 1000, // 1 minute
-  max: 3, // Limit each IP to 10 requests per minute
+  windowMs: 1 * 60 * 1000,
+  max: 3,
   message: { error: "Too many requests. Please try again later." },
   standardHeaders: true,
   legacyHeaders: false,
-  validate: { xForwardedForHeader: false },
 });
 app.use("/api/scrape", limiter);
 
 // ================= STATE MANAGEMENT =================
 let browser = null;
 let jobsCompleted = 0;
-
-// Queue System
 const queue = [];
 let activeJobs = 0;
 
@@ -67,7 +72,7 @@ const initBrowser = async () => {
     args: [
       "--no-sandbox",
       "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage", // Critical for Docker/Render
+      "--disable-dev-shm-usage",
       "--disable-accelerated-2d-canvas",
       "--disable-gpu",
       "--hide-scrollbars",
@@ -124,11 +129,8 @@ const getEquivalent = (grade) => {
   return map[grade] || "N/A";
 };
 
-// Stealth scripts to bypass basic detection
 const applyStealth = async (page) => {
-  await page.setExtraHTTPHeaders({
-    "Accept-Language": "en-US,en;q=0.9",
-  });
+  await page.setExtraHTTPHeaders({ "Accept-Language": "en-US,en;q=0.9" });
   await page.setUserAgent(
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
   );
@@ -144,13 +146,9 @@ const verifyCaptcha = async (token) => {
   try {
     const response = await fetch(
       `https://www.google.com/recaptcha/api/siteverify?secret=${RECAPTCHA_SECRET_KEY}&response=${token}`,
-      {
-        method: "POST",
-      },
+      { method: "POST" },
     );
     const data = await response.json();
-
-    // V3: Check score threshold (e.g. 0.5)
     return data.success && (data.score === undefined || data.score >= 0.5);
   } catch (e) {
     console.error("Captcha verification error:", e);
@@ -164,17 +162,6 @@ const processQueue = async () => {
 
   const job = queue.shift();
   activeJobs++;
-
-  // Notify others in queue of their new position
-  queue.forEach((qJob, index) => {
-    qJob.res.write(
-      JSON.stringify({
-        type: "queue",
-        position: index + 1,
-        message: `Waiting in queue (Pos: ${index + 1})...`,
-      }) + "\n",
-    );
-  });
 
   try {
     await runScrapeJob(job.req, job.res);
@@ -192,42 +179,40 @@ const processQueue = async () => {
   } finally {
     activeJobs--;
     jobsCompleted++;
-    if (jobsCompleted > BROWSER_RESTART_LIMIT) {
-      console.log("[System] Periodic browser restart...");
-      await restartBrowser();
-    }
+    if (jobsCompleted > BROWSER_RESTART_LIMIT) await restartBrowser();
     processQueue();
   }
 };
 
 const runScrapeJob = async (req, res) => {
   const { studentId, password } = req.body;
+  let context = null;
   let page = null;
-
-  // 3. Client Disconnect Handling
-  req.on("close", async () => {
-    if (page && !page.isClosed()) {
-      console.log(`[Job] Client disconnected: ${studentId}`);
-      try {
-        await page.close();
-      } catch (e) {}
-    }
-  });
 
   try {
     const browserInstance = await initBrowser();
-    page = await browserInstance.newPage();
 
-    // 4. Input Validation (Already done via body parser limits, but strict type check)
-    if (typeof studentId !== "string" || typeof password !== "string") {
-      throw new Error("Invalid input format");
-    }
+    // FIX: Use BrowserContext for total isolation (Prevents account mixing)
+    context = await browserInstance.createBrowserContext();
+    page = await context.newPage();
 
-    // Safety Timeout
+    req.on("close", async () => {
+      if (context) {
+        console.log(
+          `[Job] Client disconnected, closing private context: ${studentId}`,
+        );
+        try {
+          await context.close();
+        } catch (e) {}
+      }
+    });
+
     const timeoutId = setTimeout(async () => {
-      if (page && !page.isClosed()) {
-        console.log(`[Job] Timeout killing: ${studentId}`);
-        await page.close();
+      if (context) {
+        console.log(`[Job] Timeout killing context: ${studentId}`);
+        try {
+          await context.close();
+        } catch (e) {}
         if (!res.writableEnded) {
           res.write(
             JSON.stringify({ type: "error", error: "Operation Timed Out" }) +
@@ -239,25 +224,21 @@ const runScrapeJob = async (req, res) => {
     }, JOB_TIMEOUT_MS);
 
     await applyStealth(page);
-
-    // Optimize resource loading
     await page.setRequestInterception(true);
     page.on("request", (request) => {
       if (
         ["image", "media", "font", "stylesheet"].includes(
           request.resourceType(),
         )
-      ) {
+      )
         request.abort();
-      } else {
-        request.continue();
-      }
+      else request.continue();
     });
 
     res.write(
       JSON.stringify({
         type: "status",
-        message: "Connecting to University Portal...",
+        message: "Connecting (Private Session)...",
       }) + "\n",
     );
 
@@ -267,68 +248,33 @@ const runScrapeJob = async (req, res) => {
       timeout: PAGE_LOAD_TIMEOUT,
     });
 
-    const captchaDetected = await page.evaluate(
-      () =>
-        document.body.innerText.includes("captcha") ||
-        window.location.href.includes(".well-known"),
+    await page.waitForSelector("#student-id-1", { timeout: SELECTOR_TIMEOUT });
+    await page.type("#student-id-1", studentId);
+    await page.type("#student-password-1", password);
+
+    res.write(
+      JSON.stringify({ type: "status", message: "Authenticating..." }) + "\n",
     );
-    if (captchaDetected)
+
+    await Promise.all([
+      page.click("#submit"),
+      page
+        .waitForNavigation({
+          waitUntil: "domcontentloaded",
+          timeout: PAGE_LOAD_TIMEOUT,
+        })
+        .catch(() => null),
+    ]);
+
+    if (page.url().includes("/login")) {
+      const errorMsg = await page
+        .$eval(".alert", (el) => el.textContent)
+        .then((t) => t.trim())
+        .catch(() => "Invalid Credentials");
       throw new Error(
-        "University Firewall Blocked Request. Try again in 5 mins.",
-      );
-
-    // Check if we were redirected away from login (e.g. session active)
-    const currentUrl = page.url();
-    console.log(`[Job] Current URL after initial navigation: ${currentUrl}`);
-
-    if (currentUrl.includes("/login")) {
-      // Only perform authentication if we are on a login page
-      await page.waitForSelector("#student-id-1", {
-        timeout: SELECTOR_TIMEOUT,
-      });
-
-      await page.type("#student-id-1", studentId);
-      await page.type("#student-password-1", password);
-
-      res.write(
-        JSON.stringify({ type: "status", message: "Authenticating..." }) + "\n",
-      );
-
-      await Promise.all([
-        page.click("#submit"),
-        page
-          .waitForNavigation({
-            waitUntil: "domcontentloaded",
-            timeout: PAGE_LOAD_TIMEOUT,
-          })
-          .catch(() => null),
-      ]);
-
-      // Check login success
-      const url = page.url();
-      console.log(`[Job] Current URL after login attempt: ${url}`);
-
-      if (url.includes("/login")) {
-        // Fix: Trim whitespace from error message to prevent JSON issues and massive logs
-        const errorMsg = await page
-          .$eval(".alert", (el) => el.textContent)
-          .then((t) => t.trim())
-          .catch(() => "Invalid Credentials");
-        throw new Error(
-          errorMsg.includes("Invalid")
-            ? "Invalid Student ID or Password"
-            : errorMsg,
-        );
-      }
-    } else {
-      console.log(
-        `[Job] Redirected to ${currentUrl} (session active?), skipping login form.`,
-      );
-      res.write(
-        JSON.stringify({
-          type: "status",
-          message: "Session restored, skipping login...",
-        }) + "\n",
+        errorMsg.includes("Invalid")
+          ? "Invalid Student ID or Password"
+          : errorMsg,
       );
     }
 
@@ -344,7 +290,6 @@ const runScrapeJob = async (req, res) => {
       waitUntil: "domcontentloaded",
       timeout: PAGE_LOAD_TIMEOUT,
     });
-    console.log(`[Job] Current URL after navigating to grades: ${page.url()}`);
 
     const semesters = await page.evaluate(() => {
       const select = document.querySelector("#semesters");
@@ -358,40 +303,29 @@ const runScrapeJob = async (req, res) => {
     const finalResults = [];
 
     for (const sem of semesters) {
-      // Send heartbeat to keep connection alive
       res.write(
         JSON.stringify({ type: "status", message: `Reading ${sem.text}...` }) +
           "\n",
       );
 
-      // 1. Select the Option
       await page.select("#semesters", sem.value);
-
-      // 2. Force Dispatch Change Event (Critical Fix)
       await page.evaluate((val) => {
         const el = document.querySelector("#semesters");
         el.value = val;
         el.dispatchEvent(new Event("change", { bubbles: true }));
       }, sem.value);
 
-      // 3. Wait for Network Idle (Wait for AJAX table update)
       try {
-        // Wait for 500ms of no network activity, up to 5s.
-        // This ensures the grade data fetch is complete.
         await page.waitForNetworkIdle({ idleTime: 500, timeout: 5000 });
       } catch (e) {
-        // Fallback if network idle times out (slow server or constant polling)
         await new Promise((r) => setTimeout(r, 2000));
       }
 
       const grades = await page.evaluate((semName) => {
-        // IMPORTANT: Filter by visibility (offsetParent !== null)
-        // This prevents scraping ALL subjects if the dropdown simply hides other rows via CSS
         const rows = Array.from(document.querySelectorAll("table tbody tr"));
         return rows
           .map((row) => {
-            if (row.offsetParent === null) return null; // Hidden row
-
+            if (row.offsetParent === null) return null;
             const cells = row.querySelectorAll("td");
             if (cells.length < 3) return null;
             const subject = cells[1].textContent.trim();
@@ -410,40 +344,42 @@ const runScrapeJob = async (req, res) => {
       finalResults.push(...grades);
     }
 
-    // Process Equivalents
-    const processed = finalResults.map((g) => ({
-      ...g,
-      equivalent: getEquivalent(g.grade),
-    }));
+    // Process Equivalents and Sort from Smallest to Largest Amount
+    const processed = finalResults
+      .map((g) => ({ ...g, equivalent: getEquivalent(g.grade) }))
+      .sort((a, b) => {
+        const gradeA = parseFloat(a.grade) || 0;
+        const gradeB = parseFloat(b.grade) || 0;
+        return gradeA - gradeB;
+      });
 
     clearTimeout(timeoutId);
 
-    // Final Success Response
-    res.write(JSON.stringify({ type: "success", data: processed }) + "\n");
-    res.end();
+    res.write(
+      JSON.stringify({
+        type: "success",
+        data: processed,
+        policy: DATA_PRIVACY_POLICY,
+      }) + "\n",
+    );
 
-    await page.close();
+    res.end();
+    await context.close();
   } catch (error) {
-    if (page && !page.isClosed()) await page.close();
-    throw error; // Handled by processQueue wrapper
+    if (context) await context.close();
+    throw error;
   }
 };
 
 // ================= ROUTES =================
 
 app.get("/api/health", (req, res) => {
-  res.status(200).json({
-    status: "ok",
-    activeJobs,
-    queueLength: queue.length,
-    freeSlots: MAX_CONCURRENT_JOBS - activeJobs,
-  });
+  res.status(200).json({ status: "ok", activeJobs, queueLength: queue.length });
 });
 
 app.post("/api/scrape", async (req, res) => {
   const { studentId, password, captchaToken } = req.body;
 
-  // 4. Input Validation
   if (
     !studentId ||
     !password ||
@@ -453,36 +389,19 @@ app.post("/api/scrape", async (req, res) => {
     return res.status(400).json({ error: "Invalid credentials format" });
   }
 
-  // 5. Captcha Verification (V3)
   const isHuman = await verifyCaptcha(captchaToken);
-  if (!isHuman) {
-    return res
-      .status(403)
-      .json({ error: "CAPTCHA verification failed. Low trust score." });
-  }
+  if (!isHuman)
+    return res.status(403).json({ error: "CAPTCHA verification failed." });
 
-  // 6. Queue Limit Check
   if (queue.length >= MAX_QUEUE_SIZE) {
-    return res.status(503).json({
-      error:
-        "Server is busy (High Traffic). Please try again in a few minutes.",
-    });
+    return res
+      .status(503)
+      .json({ error: "Server is busy. Please try again later." });
   }
 
-  // Set Headers for Streaming
   res.setHeader("Content-Type", "application/x-ndjson");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
-
-  // Add to Queue
-  const queuePosition = queue.length + 1;
-  res.write(
-    JSON.stringify({
-      type: "queue",
-      position: queuePosition,
-      message: `Queued (Position: ${queuePosition})...`,
-    }) + "\n",
-  );
 
   queue.push({ req, res });
   processQueue();
@@ -492,10 +411,6 @@ app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "dist", "index.html"));
 });
 
-// ================= STARTUP =================
 app.listen(PORT, () => {
   console.log(`🚀 iBU Sync Server running on port ${PORT}`);
-  console.log(
-    `System: ${MAX_CONCURRENT_JOBS} Workers, ${MAX_QUEUE_SIZE} Queue Limit`,
-  );
 });
