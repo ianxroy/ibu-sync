@@ -87,7 +87,7 @@ const formatDuration = (seconds: number) => {
 
 // ================= SERVER SELECTION LOGIC =================
 interface ServerNode {
-  url: string;
+  url: string; // Empty string means relative path (same origin)
   name: string;
   latency?: number;
 }
@@ -130,8 +130,6 @@ const App: React.FC = () => {
     return () => clearInterval(interval);
   }, [status]);
 
-  // Removed old useEffect for statusMessage to avoid overwriting real-time updates
-
   const processGrades = (data: Grade[]) => {
     setGrades(data);
     const initialUnits: Record<string, string> = {};
@@ -159,12 +157,36 @@ const App: React.FC = () => {
     setIsModalOpen(false);
   };
 
-  // --- CONNECT TO RAILWAY ---
-  const connectToRailway = async (): Promise<ServerNode> => {
-    // We simply check health of the single production instance
-    const start = Date.now();
+  // --- CONNECT TO SERVER ---
+  const connectToServer = async (): Promise<ServerNode> => {
+    // 1. Try Relative/Local connection first (Best for Docker/Self-Hosted)
+    const startLocal = Date.now();
     try {
-      // 5s timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 2000);
+
+      // Attempt to hit the relative API endpoint
+      const res = await fetch(`/api/health`, {
+        signal: controller.signal,
+        method: "GET",
+      });
+      clearTimeout(timeoutId);
+
+      if (res.ok) {
+        const endLocal = Date.now();
+        return {
+          url: "", // Empty string implies relative URL
+          name: "Local / Self-Hosted",
+          latency: endLocal - startLocal,
+        };
+      }
+    } catch (e) {
+      // Ignore and fall back to Railway
+    }
+
+    // 2. Fallback to Railway Production
+    const startRailway = Date.now();
+    try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
 
@@ -175,12 +197,12 @@ const App: React.FC = () => {
       clearTimeout(timeoutId);
 
       if (!res.ok) throw new Error("Railway instance unreachable");
-      const end = Date.now();
+      const endRailway = Date.now();
 
       return {
         url: RAILWAY_PRODUCTION_URL,
         name: "Railway (Production)",
-        latency: end - start,
+        latency: endRailway - startRailway,
       };
     } catch (e) {
       console.warn("Health check failed, attempting direct connection anyway");
@@ -202,11 +224,11 @@ const App: React.FC = () => {
     setActiveServer(null);
     setQueuePosition(null);
     setIsModalOpen(true);
-    setStatusMessage("Connecting to Railway Server...");
+    setStatusMessage("Connecting to Server...");
 
     try {
       // 1. Benchmark / Connect
-      const server = await connectToRailway();
+      const server = await connectToServer();
       setActiveServer(server);
 
       // 2. Scrape with Streaming NDJSON
@@ -275,7 +297,9 @@ const App: React.FC = () => {
     if (!feedbackMsg.trim()) return;
     setIsSubmittingFeedback(true);
     try {
-      const targetUrl = `${RAILWAY_PRODUCTION_URL}/api/feedback`;
+      // Use active server if available, else try relative
+      const baseUrl = activeServer ? activeServer.url : "";
+      const targetUrl = `${baseUrl}/api/feedback`;
 
       const res = await fetch(targetUrl, {
         method: "POST",
@@ -648,7 +672,7 @@ const App: React.FC = () => {
               </h1>
             </div>
             <p className="text-xs font-bold text-slate-500 opacity-60 uppercase tracking-widest pl-1">
-              Academic Hub (Railway)
+              Academic Hub
             </p>
           </div>
 
