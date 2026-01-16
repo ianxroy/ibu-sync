@@ -42,7 +42,7 @@ const App: React.FC = () => {
       const hasSeen = localStorage.getItem(STORAGE_KEY);
 
       // Cutoff: January 20, 2025, 23:59:59 (Philippine Time UTC+8)
-      const cutoffDate = new Date("2025-01-20T23:59:59+08:00");
+      const cutoffDate = new Date("2026-01-20T23:59:59+08:00");
       const now = new Date();
 
       if (!hasSeen && now < cutoffDate) {

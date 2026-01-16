@@ -34,7 +34,7 @@ export const WhatsNewModal: React.FC<WhatsNewModalProps> = ({ onClose }) => {
           <div className="relative z-10">
             <div className="flex items-center gap-2 mb-2">
               <div className="bg-white/20 backdrop-blur-md px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border border-white/20">
-                What's New
+                What's New !
               </div>
               <div className="bg-indigo-500/50 backdrop-blur-md px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border border-white/10">
                 v{LATEST_VERSION.version}
