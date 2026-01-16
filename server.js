@@ -362,16 +362,24 @@ const runScrapeJob = async (req, res) => {
           "\n"
       );
 
+      // 1. Select the Option
       await page.select("#semesters", sem.value);
 
-      // Wait for table update (naive check: wait for at least one row or timeout small)
+      // 2. Force Dispatch Change Event (Critical Fix)
+      await page.evaluate((val) => {
+        const el = document.querySelector("#semesters");
+        el.value = val;
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+      }, sem.value);
+
+      // 3. Wait for Network Idle (Wait for AJAX table update)
       try {
-        await page.waitForFunction(
-          () => document.querySelectorAll("table tbody tr").length > 0,
-          { timeout: 4000 }
-        );
+        // Wait for 500ms of no network activity, up to 5s.
+        // This ensures the grade data fetch is complete.
+        await page.waitForNetworkIdle({ idleTime: 500, timeout: 5000 });
       } catch (e) {
-        /* Ignore empty sems */
+        // Fallback if network idle times out (slow server or constant polling)
+        await new Promise((r) => setTimeout(r, 2000));
       }
 
       const grades = await page.evaluate((semName) => {

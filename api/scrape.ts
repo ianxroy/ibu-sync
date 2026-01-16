@@ -171,18 +171,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // 4. SCRAPE LOOP
     for (const semester of semesters) {
+      // 1. Select option
       await page.select("#semesters", semester.value);
 
+      // 2. Force Change Event
+      await page.evaluate((val) => {
+        const el = document.querySelector("#semesters") as HTMLSelectElement;
+        el.value = val;
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+      }, semester.value);
+
+      // 3. Wait for Network Idle (Wait for AJAX table update)
       try {
-        await page.waitForFunction(
-          () => {
-            const rows = document.querySelectorAll("table tbody tr");
-            return rows.length > 0;
-          },
-          { timeout: 15000 }
-        );
+        await page.waitForNetworkIdle({ idleTime: 500, timeout: 5000 });
       } catch (e) {
-        continue; // Skip empty/slow semesters
+        await new Promise((r) => setTimeout(r, 2000));
       }
 
       // Extract grades
