@@ -29,11 +29,22 @@ export const LoginForm: React.FC<LoginFormProps> = ({
   const [localPassword, setLocalPassword] = useState("");
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
 
-  // Use VITE_RECAPTCHA_SITE_KEY from env, or fallback to Google's standard Test Site Key
-  // Test Key: 6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI (Always works, shows warning)
-  const SITE_KEY =
-    import.meta.env.VITE_RECAPTCHA_SITE_KEY ||
-    "6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI";
+  // ---------------------------------------------------------------------------
+  // CRITICAL RECAPTCHA CONFIGURATION
+  // ---------------------------------------------------------------------------
+  // The error "Invalid key type" occurs if you use a V3 key with a V2 widget.
+  // This component renders a V2 Checkbox widget.
+  //
+  // 1. Google Standard Test Key (V2 Checkbox): "6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI"
+  //    - This ALWAYS works for development. It shows a warning overlay but functions correctly.
+  //
+  // 2. If using your own key:
+  //    - Go to https://www.google.com/recaptcha/admin
+  //    - Select "v2" -> "I'm not a robot" Checkbox.
+  //    - DO NOT select v3.
+  // ---------------------------------------------------------------------------
+
+  const SITE_KEY = "6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI";
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -71,6 +82,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({
           sitekey={SITE_KEY}
           onChange={onCaptchaChange}
           size="compact"
+          theme="light"
         />
       </div>
 

@@ -24,10 +24,8 @@ const PAGE_LOAD_TIMEOUT = parseInt(process.env.PAGE_LOAD_TIMEOUT || "45000");
 const SELECTOR_TIMEOUT = parseInt(process.env.SELECTOR_TIMEOUT || "30000");
 const TARGET_URL =
   process.env.TARGET_URL || "https://systems.bicol-u.edu.ph/ibu-beta";
-// Use Google Test Secret Key by default if env var is missing
-const RECAPTCHA_SECRET_KEY =
-  process.env.RECAPTCHA_SECRET_KEY ||
-  "6LeIxAcTAAAAAGG-vFI1TnRWxMZNFuojJ4WifJWe";
+// FIX: Force Google Test Secret Key
+const RECAPTCHA_SECRET_KEY = "6LeIxAcTAAAAAGG-vFI1TnRWxMZNFuojJ4WifJWe";
 
 // ================= MIDDLEWARE =================
 // TRUST PROXY IS REQUIRED FOR RATE LIMITER BEHIND PROXIES (RAILWAY/DOCKER)
