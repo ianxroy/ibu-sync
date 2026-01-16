@@ -1,8 +1,11 @@
 export const SUBJECT_UNITS: Record<string, string> = {
+  // 2.0 Units
   "Movement Competency Training": "2.0",
   "Exercise-based Fitness Activities": "2.0",
   "Menu of Dance, Sports, Martial Arts, Group Exercise, Outdoor and Adventure Activities":
     "2.0",
+
+  // 3.0 Units
   "CWTS/LTS/ROTC": "3.0",
   "Understanding the Self": "3.0",
   "Readings in Philippine History": "3.0",
@@ -39,12 +42,43 @@ export const SUBJECT_UNITS: Record<string, string> = {
   "Digital Systems Design": "3.0",
   "Thesis 1": "3.0",
   "Physics for Computing": "3.0",
-  "Mathematical Analysis 1": "5.0",
-  "Mathematical Analysis 2": "5.0",
   "Linear Algebra": "3.0",
   "Differential Equations": "3.0",
   "Numerical Analysis": "3.0",
   "CS Elec 1": "3.0",
   "CS Elec 3": "3.0",
   "Practicum (240 Hours)": "3.0",
+  Agribusiness: "3.0",
+  "Entrepreneurial Leadership in an Organization": "3.0",
+  "Programs and Policies on Enterprise Development": "3.0",
+  "Business Law and Taxation with Focus on Laws Affecting Micro, Small and Medium Enterprises (Income Taxation for MSME's)":
+    "3.0",
+  "Business Plan Preparation": "3.0",
+  "Special Track 2 (Technology Based Projects 2)": "3.0",
+  "Human Resource Management": "3.0",
+  "Operations Management (TQM)": "3.0",
+  "Managing a Service Enterprise": "3.0",
+  "Pricing and Costing": "3.0",
+  "Financial Management (Financial Analysis for Decision Making)": "3.0",
+  "Special Track 2 (Technopreneurship 1)": "3.0",
+  "Strategic Management": "3.0",
+  "Business Law and Taxation with focus on Laws Affecting Micro, Small and Medium Enterprises (Business Laws for MSME's)":
+    "3.0",
+  "Market Research and Consumer Behavior": "3.0",
+  "Innovation Management": "3.0",
+  "Special Track I (Technology Based Project)": "3.0",
+  "International Business and Trade": "3.0",
+  Franchising: "3.0",
+  "Life and Works of Rizal": "3.0",
+  "Social Entrepreneurship": "3.0",
+  "Living in the IT Era": "3.0",
+  Microeconomics: "3.0",
+  "Entrepreneurial Behavior": "3.0",
+  "Opportunity Seeking": "3.0",
+
+  // 5.0 Units
+  "Mathematical Analysis 1": "5.0",
+  "Mathematical Analysis 2": "5.0",
+  "Business Plan Implementation : Product Development and Market Analysis":
+    "5.0",
 };

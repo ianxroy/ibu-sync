@@ -230,7 +230,7 @@ const runScrapeJob = async (req, res) => {
     // --- LOGIN ---
     await page.goto("https://systems.bicol-u.edu.ph/ibu-beta/login", {
       waitUntil: "domcontentloaded",
-      timeout: 20000,
+      timeout: 30000,
     });
 
     const captchaDetected = await page.evaluate(
@@ -243,6 +243,9 @@ const runScrapeJob = async (req, res) => {
         "University Firewall Blocked Request. Try again in 5 mins."
       );
 
+    // WAIT FOR SELECTOR - FIXES "No element found" error on slow loads
+    await page.waitForSelector("#student-id-1", { timeout: 15000 });
+
     await page.type("#student-id-1", studentId);
     await page.type("#student-password-1", password);
 
@@ -253,7 +256,7 @@ const runScrapeJob = async (req, res) => {
     await Promise.all([
       page.click("#submit"),
       page
-        .waitForNavigation({ waitUntil: "domcontentloaded", timeout: 20000 })
+        .waitForNavigation({ waitUntil: "domcontentloaded", timeout: 30000 })
         .catch(() => null),
     ]);
 
@@ -280,7 +283,7 @@ const runScrapeJob = async (req, res) => {
     // --- GRADES ---
     await page.goto("https://systems.bicol-u.edu.ph/ibu-beta/grades", {
       waitUntil: "domcontentloaded",
-      timeout: 20000,
+      timeout: 30000,
     });
 
     const semesters = await page.evaluate(() => {

@@ -39,7 +39,25 @@ import { Grade, AppStatus } from "./types";
 import { SUBJECT_UNITS } from "./subjects";
 
 /* ================= CONSTANTS ================= */
-const RAILWAY_PRODUCTION_URL = "https://ibu-sync-production.up.railway.app";
+// Parse environment variable for backend URLs (comma separated)
+// Safely check if import.meta.env exists to prevent runtime crashes
+const getBackendUrls = () => {
+  try {
+    // @ts-ignore - Handle potential undefined env at runtime
+    if (import.meta && import.meta.env && import.meta.env.VITE_BACKEND_URLS) {
+      // @ts-ignore
+      return import.meta.env.VITE_BACKEND_URLS;
+    }
+  } catch (e) {
+    // Fallback if access fails
+  }
+  return "";
+};
+
+const BACKEND_URLS = getBackendUrls()
+  .split(",")
+  .map((url: string) => url.trim())
+  .filter((url: string) => url.length > 0);
 
 const GRADING_SCALE = [
   { rating: "Outstanding", grade: "1.0", eq: "99-100" },
@@ -181,37 +199,53 @@ const App: React.FC = () => {
         };
       }
     } catch (e) {
-      // Ignore and fall back to Railway
+      // Ignore and fall back to configured backends
     }
 
-    // 2. Fallback to Railway Production
-    const startRailway = Date.now();
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
+    // 2. Iterate through Environment Configured Backends
+    if (BACKEND_URLS.length > 0) {
+      for (const baseUrl of BACKEND_URLS) {
+        const start = Date.now();
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-      const res = await fetch(`${RAILWAY_PRODUCTION_URL}/api/health`, {
-        signal: controller.signal,
-        method: "GET",
-      });
-      clearTimeout(timeoutId);
+          const res = await fetch(`${baseUrl}/api/health`, {
+            signal: controller.signal,
+            method: "GET",
+          });
+          clearTimeout(timeoutId);
 
-      if (!res.ok) throw new Error("Railway instance unreachable");
-      const endRailway = Date.now();
+          if (res.ok) {
+            const end = Date.now();
+            return {
+              url: baseUrl,
+              name: "Cloud Node",
+              latency: end - start,
+            };
+          }
+        } catch (e) {
+          console.warn(`Failed to connect to ${baseUrl}`, e);
+        }
+      }
 
+      // 3. Hail Mary: Return the first configured backend even if health check failed
+      console.warn(
+        "All health checks failed, defaulting to primary configured backend."
+      );
       return {
-        url: RAILWAY_PRODUCTION_URL,
-        name: "Railway (Production)",
-        latency: endRailway - startRailway,
-      };
-    } catch (e) {
-      console.warn("Health check failed, attempting direct connection anyway");
-      return {
-        url: RAILWAY_PRODUCTION_URL,
-        name: "Railway (Production)",
+        url: BACKEND_URLS[0],
+        name: "Cloud Node (Unverified)",
         latency: undefined,
       };
     }
+
+    // Default to local if no env vars are set
+    return {
+      url: "",
+      name: "Local / Self-Hosted",
+      latency: undefined,
+    };
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
