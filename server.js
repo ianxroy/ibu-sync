@@ -244,7 +244,6 @@ const runScrapeJob = async (req, res) => {
       waitUntil: "domcontentloaded",
       timeout: PAGE_LOAD_TIMEOUT,
     });
-    console.log(`[Job] Current URL after initial navigation: ${page.url()}`);
 
     const captchaDetected = await page.evaluate(
       () =>
@@ -256,40 +255,58 @@ const runScrapeJob = async (req, res) => {
         "University Firewall Blocked Request. Try again in 5 mins."
       );
 
-    // WAIT FOR SELECTOR - FIXES "No element found" error on slow loads
-    await page.waitForSelector("#student-id-1", { timeout: SELECTOR_TIMEOUT });
+    // Check if we were redirected away from login (e.g. session active)
+    const currentUrl = page.url();
+    console.log(`[Job] Current URL after initial navigation: ${currentUrl}`);
 
-    await page.type("#student-id-1", studentId);
-    await page.type("#student-password-1", password);
+    if (currentUrl.includes("/login")) {
+      // Only perform authentication if we are on a login page
+      await page.waitForSelector("#student-id-1", {
+        timeout: SELECTOR_TIMEOUT,
+      });
 
-    res.write(
-      JSON.stringify({ type: "status", message: "Authenticating..." }) + "\n"
-    );
+      await page.type("#student-id-1", studentId);
+      await page.type("#student-password-1", password);
 
-    await Promise.all([
-      page.click("#submit"),
-      page
-        .waitForNavigation({
-          waitUntil: "domcontentloaded",
-          timeout: PAGE_LOAD_TIMEOUT,
-        })
-        .catch(() => null),
-    ]);
+      res.write(
+        JSON.stringify({ type: "status", message: "Authenticating..." }) + "\n"
+      );
 
-    // Check login success
-    const url = page.url();
-    console.log(`[Job] Current URL after login attempt: ${url}`);
+      await Promise.all([
+        page.click("#submit"),
+        page
+          .waitForNavigation({
+            waitUntil: "domcontentloaded",
+            timeout: PAGE_LOAD_TIMEOUT,
+          })
+          .catch(() => null),
+      ]);
 
-    if (url.includes("/login")) {
-      // Fix: Trim whitespace from error message to prevent JSON issues and massive logs
-      const errorMsg = await page
-        .$eval(".alert", (el) => el.textContent)
-        .then((t) => t.trim())
-        .catch(() => "Invalid Credentials");
-      throw new Error(
-        errorMsg.includes("Invalid")
-          ? "Invalid Student ID or Password"
-          : errorMsg
+      // Check login success
+      const url = page.url();
+      console.log(`[Job] Current URL after login attempt: ${url}`);
+
+      if (url.includes("/login")) {
+        // Fix: Trim whitespace from error message to prevent JSON issues and massive logs
+        const errorMsg = await page
+          .$eval(".alert", (el) => el.textContent)
+          .then((t) => t.trim())
+          .catch(() => "Invalid Credentials");
+        throw new Error(
+          errorMsg.includes("Invalid")
+            ? "Invalid Student ID or Password"
+            : errorMsg
+        );
+      }
+    } else {
+      console.log(
+        `[Job] Redirected to ${currentUrl} (session active?), skipping login form.`
+      );
+      res.write(
+        JSON.stringify({
+          type: "status",
+          message: "Session restored, skipping login...",
+        }) + "\n"
       );
     }
 
