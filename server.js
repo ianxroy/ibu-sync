@@ -12,10 +12,18 @@ const app = express();
 
 // ================= CONFIGURATION =================
 const PORT = process.env.PORT || 8080;
-const MAX_CONCURRENT_JOBS = 5; // Max tabs open at once
-const MAX_QUEUE_SIZE = 15; // Max users waiting
-const JOB_TIMEOUT_MS = 60000; // 60s hard timeout per scrape
-const BROWSER_RESTART_LIMIT = 100; // Restart browser after this many jobs to prevent leaks
+const MAX_CONCURRENT_JOBS = parseInt(process.env.MAX_CONCURRENT_JOBS || "5");
+const MAX_QUEUE_SIZE = parseInt(process.env.MAX_QUEUE_SIZE || "15");
+const JOB_TIMEOUT_MS = parseInt(process.env.JOB_TIMEOUT_MS || "60000");
+const BROWSER_RESTART_LIMIT = parseInt(
+  process.env.BROWSER_RESTART_LIMIT || "100"
+);
+
+// Scraper specific timeouts
+const PAGE_LOAD_TIMEOUT = parseInt(process.env.PAGE_LOAD_TIMEOUT || "45000"); // Increased default
+const SELECTOR_TIMEOUT = parseInt(process.env.SELECTOR_TIMEOUT || "30000"); // Increased default from 15s to 30s
+const TARGET_URL =
+  process.env.TARGET_URL || "https://systems.bicol-u.edu.ph/ibu-beta";
 
 // ================= MIDDLEWARE =================
 // TRUST PROXY IS REQUIRED FOR RATE LIMITER BEHIND PROXIES (RAILWAY/DOCKER)
@@ -232,9 +240,9 @@ const runScrapeJob = async (req, res) => {
     );
 
     // --- LOGIN ---
-    await page.goto("https://systems.bicol-u.edu.ph/ibu-beta/login", {
+    await page.goto(`${TARGET_URL}/login`, {
       waitUntil: "domcontentloaded",
-      timeout: 30000,
+      timeout: PAGE_LOAD_TIMEOUT,
     });
 
     const captchaDetected = await page.evaluate(
@@ -248,7 +256,7 @@ const runScrapeJob = async (req, res) => {
       );
 
     // WAIT FOR SELECTOR - FIXES "No element found" error on slow loads
-    await page.waitForSelector("#student-id-1", { timeout: 15000 });
+    await page.waitForSelector("#student-id-1", { timeout: SELECTOR_TIMEOUT });
 
     await page.type("#student-id-1", studentId);
     await page.type("#student-password-1", password);
@@ -260,7 +268,10 @@ const runScrapeJob = async (req, res) => {
     await Promise.all([
       page.click("#submit"),
       page
-        .waitForNavigation({ waitUntil: "domcontentloaded", timeout: 30000 })
+        .waitForNavigation({
+          waitUntil: "domcontentloaded",
+          timeout: PAGE_LOAD_TIMEOUT,
+        })
         .catch(() => null),
     ]);
 
@@ -287,9 +298,9 @@ const runScrapeJob = async (req, res) => {
     );
 
     // --- GRADES ---
-    await page.goto("https://systems.bicol-u.edu.ph/ibu-beta/grades", {
+    await page.goto(`${TARGET_URL}/grades`, {
       waitUntil: "domcontentloaded",
-      timeout: 30000,
+      timeout: PAGE_LOAD_TIMEOUT,
     });
 
     const semesters = await page.evaluate(() => {
