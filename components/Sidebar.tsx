@@ -6,6 +6,7 @@ import {
   IoChatboxEllipsesOutline,
   IoChevronForward,
   IoGlobeOutline,
+  IoGitBranchOutline,
 } from "react-icons/io5";
 import { LoginForm } from "./LoginForm";
 import { AppStatus } from "../types";
@@ -17,6 +18,7 @@ interface SidebarProps {
   onShowGradingScale: () => void;
   onShowPrivacy: () => void;
   onShowFeedback: () => void;
+  onShowVersions: () => void;
   formKey: number; // Used to reset form
 }
 
@@ -27,6 +29,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onShowGradingScale,
   onShowPrivacy,
   onShowFeedback,
+  onShowVersions,
   formKey,
 }) => {
   return (
@@ -77,6 +80,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
         >
           <span className="flex items-center gap-2">
             <IoChatboxEllipsesOutline size={14} /> Send Feedback
+          </span>
+          <IoChevronForward />
+        </button>
+        <button
+          onClick={onShowVersions}
+          className="w-full py-3 px-4 rounded-xl bg-white/60 border border-white text-slate-700 text-[10px] font-black uppercase tracking-widest flex items-center justify-between hover:bg-white shadow-sm transition-all"
+        >
+          <span className="flex items-center gap-2">
+            <IoGitBranchOutline size={14} /> Version History
           </span>
           <IoChevronForward />
         </button>

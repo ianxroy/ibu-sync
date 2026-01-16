@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   IoBook,
   IoChevronDown,
@@ -10,24 +10,55 @@ import {
   IoCheckmarkCircle,
   IoSend,
   IoSyncOutline,
+  IoGitBranchOutline,
+  IoCheckmarkDone,
 } from "react-icons/io5";
 import { GlassCard } from "./components/ui/GlassCard";
 import { Sidebar } from "./components/Sidebar";
 import { Dashboard } from "./components/Dashboard";
 import { StatusModal } from "./components/StatusModal";
+import { WhatsNewModal } from "./components/WhatsNewModal";
 import { useScraper } from "./hooks/useScraper";
 import { GRADING_SCALE } from "./utils/constants";
+import { APP_VERSIONS, LATEST_VERSION } from "./utils/versions";
 
 const App: React.FC = () => {
   const [studentId, setStudentId] = useState<string>("");
   const [showGradingScale, setShowGradingScale] = useState<boolean>(false);
   const [showPrivacy, setShowPrivacy] = useState<boolean>(false);
   const [showFeedback, setShowFeedback] = useState<boolean>(false);
+  const [showVersions, setShowVersions] = useState<boolean>(false);
+  const [showWhatsNew, setShowWhatsNew] = useState<boolean>(false);
   const [feedbackMsg, setFeedbackMsg] = useState<string>("");
   const [isSubmittingFeedback, setIsSubmittingFeedback] =
     useState<boolean>(false);
   const [feedbackSuccess, setFeedbackSuccess] = useState<boolean>(false);
   const [formKey, setFormKey] = useState<number>(0);
+
+  // Logic for Auto-Popup (What's New)
+  useEffect(() => {
+    const checkWhatsNew = () => {
+      const STORAGE_KEY = `ibu_seen_version_${LATEST_VERSION.version}`;
+      const hasSeen = localStorage.getItem(STORAGE_KEY);
+
+      // Cutoff: January 20, 2025, 23:59:59 (Philippine Time UTC+8)
+      const cutoffDate = new Date("2025-01-20T23:59:59+08:00");
+      const now = new Date();
+
+      if (!hasSeen && now < cutoffDate) {
+        // Simple delay to not overwhelm user immediately on load
+        setTimeout(() => setShowWhatsNew(true), 1000);
+      }
+    };
+
+    checkWhatsNew();
+  }, []);
+
+  const handleCloseWhatsNew = () => {
+    setShowWhatsNew(false);
+    const STORAGE_KEY = `ibu_seen_version_${LATEST_VERSION.version}`;
+    localStorage.setItem(STORAGE_KEY, "true");
+  };
 
   // Custom Hooks
   const {
@@ -49,7 +80,7 @@ const App: React.FC = () => {
   const handleLogin = (
     id: string,
     pass: string,
-    captchaToken: string | null
+    captchaToken: string | null,
   ) => {
     setStudentId(id);
     loginAndScrape(id, pass, captchaToken);
@@ -105,6 +136,7 @@ const App: React.FC = () => {
           onShowGradingScale={() => setShowGradingScale(true)}
           onShowPrivacy={() => setShowPrivacy(true)}
           onShowFeedback={() => setShowFeedback(true)}
+          onShowVersions={() => setShowVersions(true)}
           formKey={formKey}
         />
 
@@ -117,7 +149,7 @@ const App: React.FC = () => {
           onReset={handleReset}
         />
 
-        {/* --- MODALS (Consider moving these to separate files if they grow larger) --- */}
+        {/* --- MODALS --- */}
 
         {showGradingScale && (
           <div className="absolute inset-0 bg-white/95 backdrop-blur-3xl z-30 p-8 overflow-y-auto animate-in slide-in-from-right duration-500">
@@ -232,6 +264,71 @@ const App: React.FC = () => {
           </div>
         )}
 
+        {showVersions && (
+          <div className="absolute inset-0 bg-white/95 backdrop-blur-3xl z-30 p-8 overflow-y-auto animate-in slide-in-from-right duration-500">
+            <div className="max-w-2xl mx-auto">
+              <div className="flex items-center justify-between mb-8">
+                <h2 className="text-xl font-black text-slate-800 flex items-center gap-3">
+                  <IoGitBranchOutline className="text-blue-600" /> Version
+                  History
+                </h2>
+                <button
+                  onClick={() => setShowVersions(false)}
+                  className="p-3 bg-slate-100 rounded-xl hover:bg-slate-200 text-slate-800"
+                >
+                  <IoChevronDown size={20} />
+                </button>
+              </div>
+
+              <div className="space-y-8">
+                {APP_VERSIONS.map((v, i) => (
+                  <div
+                    key={i}
+                    className="relative pl-8 border-l border-slate-200"
+                  >
+                    <div
+                      className={`absolute left-[-6px] top-0 w-3 h-3 rounded-full border-2 ${i === 0 ? "bg-blue-600 border-blue-600 shadow-lg shadow-blue-500/50" : "bg-white border-slate-300"}`}
+                    ></div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <span
+                        className={`text-sm font-black ${i === 0 ? "text-blue-600" : "text-slate-800"}`}
+                      >
+                        v{v.version}
+                      </span>
+                      {i === 0 && (
+                        <span className="bg-blue-100 text-blue-700 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide">
+                          Latest
+                        </span>
+                      )}
+                    </div>
+                    <h3 className="text-lg font-bold text-slate-800 mb-4">
+                      {v.title}
+                    </h3>
+                    <div className="space-y-3">
+                      {v.features.map((feat, fidx) => (
+                        <div
+                          key={fidx}
+                          className="bg-slate-50 rounded-xl p-3 border border-slate-100 flex items-start gap-3"
+                        >
+                          <IoCheckmarkDone className="text-emerald-500 mt-0.5 shrink-0" />
+                          <div>
+                            <span className="text-xs font-black text-slate-700 uppercase tracking-wide mr-2">
+                              {feat.label}:
+                            </span>
+                            <span className="text-xs text-slate-600 font-medium">
+                              {feat.desc}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
         {showFeedback && (
           <div className="absolute inset-0 bg-white/95 backdrop-blur-3xl z-30 p-8 overflow-y-auto animate-in slide-in-from-right duration-500">
             <div className="max-w-2xl mx-auto">
@@ -295,6 +392,9 @@ const App: React.FC = () => {
           </div>
         )}
       </GlassCard>
+
+      {/* Auto-popup What's New Modal */}
+      {showWhatsNew && <WhatsNewModal onClose={handleCloseWhatsNew} />}
 
       {isModalOpen && (
         <StatusModal
