@@ -1,27 +1,18 @@
 import React, { useState, useMemo, useEffect } from "react";
 import {
   IoSchool,
-  IoPerson,
-  IoKey,
-  IoRefresh,
-  IoRocket,
-  IoShieldCheckmarkOutline,
   IoChevronDown,
   IoChevronForward,
   IoGlobeOutline,
   IoBook,
   IoSyncOutline,
   IoCheckmarkCircle,
-  IoCloseCircle,
   IoCalculator,
   IoTrendingUp,
   IoRibbon,
   IoLayers,
   IoTimeOutline,
-  IoStar,
-  IoLockClosedOutline,
-  IoEyeOffOutline,
-  IoServerOutline,
+  IoShieldCheckmarkOutline,
   IoChatboxEllipsesOutline,
   IoSend,
   IoInformationCircleOutline,
@@ -30,39 +21,33 @@ import {
   IoOptions,
   IoAlertCircleOutline,
   IoAnalytics,
-  IoWarningOutline,
+  IoServerOutline,
   IoDownloadOutline,
+  IoRefresh,
+  IoLockClosedOutline,
+  IoEyeOffOutline,
 } from "react-icons/io5";
 import { GlassCard } from "./components/ui/GlassCard";
-import { Input } from "./components/ui/Input";
+import { LoginForm } from "./components/LoginForm.tsx";
 import { Grade, AppStatus } from "./types";
 import { SUBJECT_UNITS } from "./subjects";
 
 /* ================= CONSTANTS ================= */
-// Parse environment variable for backend URLs (comma separated)
 const getBackendUrls = () => {
   let urls = "";
   try {
-    // @ts-ignore - Handle potential undefined env at runtime
+    // @ts-ignore
     if (import.meta && import.meta.env && import.meta.env.VITE_BACKEND_URLS) {
       // @ts-ignore
       urls = import.meta.env.VITE_BACKEND_URLS;
     }
-  } catch (e) {
-    // Fallback if access fails
-  }
+  } catch (e) {}
 
-  // FORCE: Add the production Railway URL to ensure it is always available
   const prodUrl = "https://ibu-sync-production.up.railway.app";
-
-  // If urls is empty, just return prodUrl
   if (!urls) return prodUrl;
-
-  // If prodUrl is not in the list, append it
   if (!urls.includes(prodUrl)) {
     return `${urls},${prodUrl}`;
   }
-
   return urls;
 };
 
@@ -115,16 +100,15 @@ const formatDuration = (seconds: number) => {
   return `${mins}:${secs.toString().padStart(2, "0")}`;
 };
 
-// ================= SERVER SELECTION LOGIC =================
 interface ServerNode {
-  url: string; // Empty string means relative path (same origin)
+  url: string;
   name: string;
   latency?: number;
 }
 
 const App: React.FC = () => {
+  // We keep studentId for exports/feedback, but password is now ephemeral in LoginForm only
   const [studentId, setStudentId] = useState<string>("");
-  const [password, setPassword] = useState<string>("");
   const [status, setStatus] = useState<AppStatus>(AppStatus.IDLE);
   const [grades, setGrades] = useState<Grade[]>([]);
   const [errorMessage, setErrorMessage] = useState<string>("");
@@ -143,13 +127,12 @@ const App: React.FC = () => {
   const [feedbackSuccess, setFeedbackSuccess] = useState<boolean>(false);
   const [units, setUnits] = useState<Record<string, string>>({});
 
+  // Reset Key for LoginForm
+  const [formKey, setFormKey] = useState<number>(0);
+
   // Forecasting State
   const [remainingUnits, setRemainingUnits] = useState<number>(30);
-
-  // State for Server Selection
   const [activeServer, setActiveServer] = useState<ServerNode | null>(null);
-
-  // Queue State
   const [queuePosition, setQueuePosition] = useState<number | null>(null);
 
   useEffect(() => {
@@ -187,26 +170,18 @@ const App: React.FC = () => {
     setIsModalOpen(false);
   };
 
-  // --- CONNECT TO SERVER ---
   const connectToServer = async (): Promise<ServerNode> => {
-    // 1. Try Relative/Local connection first (Best for Docker/Self-Hosted)
-    // Only try this if we are NOT on Vercel or if we think local api exists.
-    // However, to prioritize Railway, we will try Configured Backends first if they exist.
-
-    // 2. Iterate through Environment Configured Backends (Including Railway)
     if (BACKEND_URLS.length > 0) {
       for (const baseUrl of BACKEND_URLS) {
         const start = Date.now();
         try {
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), 5000);
-
           const res = await fetch(`${baseUrl}/api/health`, {
             signal: controller.signal,
             method: "GET",
           });
           clearTimeout(timeoutId);
-
           if (res.ok) {
             const end = Date.now();
             return {
@@ -221,32 +196,25 @@ const App: React.FC = () => {
       }
     }
 
-    // 3. Fallback to Local/Relative (Vercel Functions or Docker)
     const startLocal = Date.now();
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 2000);
-
       const res = await fetch(`/api/health`, {
         signal: controller.signal,
         method: "GET",
       });
       clearTimeout(timeoutId);
-
       if (res.ok) {
         const endLocal = Date.now();
         return {
-          url: "", // Empty string implies relative URL
+          url: "",
           name: "Local / Serverless",
           latency: endLocal - startLocal,
         };
       }
-    } catch (e) {
-      // Ignore
-    }
+    } catch (e) {}
 
-    // 4. Hail Mary: Return the primary backend (Railway) even if health check failed
-    // This assumes the health check might be blocked but the scrape endpoint works
     console.warn(
       "All health checks failed, defaulting to primary configured backend."
     );
@@ -257,10 +225,8 @@ const App: React.FC = () => {
     };
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!studentId || !password) return;
-
+  const handleLogin = async (id: string, pass: string) => {
+    setStudentId(id);
     setStatus(AppStatus.LOADING);
     setErrorMessage("");
     setElapsedTime(0);
@@ -270,23 +236,18 @@ const App: React.FC = () => {
     setStatusMessage("Connecting to Server...");
 
     try {
-      // 1. Benchmark / Connect
       const server = await connectToServer();
       setActiveServer(server);
 
-      // 2. Scrape
       const endpoint = `${server.url}/api/scrape`;
-
       const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ studentId, password }),
+        body: JSON.stringify({ studentId: id, password: pass }),
       });
 
-      // HYBRID HANDLING: Check content type to decide how to process
       const contentType = response.headers.get("content-type");
 
-      // CASE A: Standard JSON (Vercel / Non-streaming)
       if (
         contentType &&
         contentType.includes("application/json") &&
@@ -300,13 +261,11 @@ const App: React.FC = () => {
           processGrades(data);
           return;
         } else if (data.data && Array.isArray(data.data)) {
-          // Handle wrapper object { data: [...] }
           processGrades(data.data);
           return;
         }
       }
 
-      // CASE B: Streaming NDJSON (Railway / Docker)
       if (!response.body) {
         if (response.status === 403) throw new Error("Security check failed.");
         throw new Error("No response body");
@@ -324,7 +283,6 @@ const App: React.FC = () => {
         buffer += chunk;
 
         const lines = buffer.split("\n");
-        // Keep the last part if incomplete
         buffer = lines.pop() || "";
 
         for (const line of lines) {
@@ -341,21 +299,16 @@ const App: React.FC = () => {
             setQueuePosition(msg.position);
             setStatusMessage(msg.message);
           } else if (msg.type === "status") {
-            // If we get a status update, we aren't in queue anymore (or position is 0)
             setQueuePosition(null);
             setStatusMessage(msg.message);
           } else if (msg.type === "success") {
             processGrades(msg.data);
-            return; // Exit loop
+            return;
           } else if (msg.type === "error") {
-            // Handle error immediately and break out of the loop
             throw new Error(msg.error || "An error occurred");
           }
         }
       }
-
-      // If we exit the while loop (done is true) but haven't returned via success/error msg
-      // It means the server connection closed cleanly but without sending a result.
       throw new Error("Server connection closed unexpectedly.");
     } catch (err: any) {
       console.error(err);
@@ -374,10 +327,8 @@ const App: React.FC = () => {
     if (!feedbackMsg.trim()) return;
     setIsSubmittingFeedback(true);
     try {
-      // Use active server if available, else try relative
       const baseUrl = activeServer ? activeServer.url : "";
       const targetUrl = `${baseUrl}/api/feedback`;
-
       const res = await fetch(targetUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -415,7 +366,6 @@ const App: React.FC = () => {
     return Object.entries(groupedGrades).sort(([semA], [semB]) => {
       const a = getSemesterOrder(semA);
       const b = getSemesterOrder(semB);
-      // Newest first (Descending)
       if (a.startYear !== b.startYear) return b.startYear - a.startYear;
       return b.semOrder - a.semOrder;
     });
@@ -431,63 +381,49 @@ const App: React.FC = () => {
 
     for (const g of gradeList) {
       const gradeStr = g.grade.trim().toUpperCase();
-
-      // Check for missing/invalid grades
       const isInvalid = ["N/A", "INC", "INCOMPLETE", "", "-"].includes(
         gradeStr
       );
 
       if (isInvalid) {
-        if (ignoreMissing) continue; // Skip if we are running partial calc
-        return "---"; // Return empty if strict mode
+        if (ignoreMissing) continue;
+        return "---";
       }
 
       const gradeVal = parseFloat(g.grade);
-
       if (!isNaN(gradeVal)) {
         const key = `${g.semester}-${g.subject}`;
         const unitValStr = unitMap[key];
-
         if (!unitValStr || unitValStr.trim() === "" || unitValStr === "-") {
-          // If unit is missing, strict mode fails. Partial mode skips.
           if (ignoreMissing) continue;
           return "---";
         }
-
         const unitVal = parseFloat(unitValStr);
-
         if (isNaN(unitVal)) {
           if (ignoreMissing) continue;
           return "---";
         }
-
         if (unitVal > 0) {
           totalWeightedGrades += gradeVal * unitVal;
           totalUnits += unitVal;
         }
       }
     }
-
     if (totalUnits === 0) return "---";
     return (totalWeightedGrades / totalUnits).toFixed(4);
   };
 
   const overallStats = useMemo(() => {
-    // 1. Calculate Running GWA (ignoring missing)
     const runningGWAStr = calculateGWA(grades, units, true);
-    // 2. Calculate Strict GWA (fail on missing) to detect if incomplete
     const strictGWAStr = calculateGWA(grades, units, false);
-
     const isPartial = strictGWAStr === "---" && runningGWAStr !== "---";
     const totalGWA = runningGWAStr;
-
     let totalUnits = 0;
     let hasDisqualification = false;
 
     grades.forEach((g: Grade) => {
       const u = parseFloat(units[`${g.semester}-${g.subject}`] || "0");
       if (!isNaN(u) && !isNaN(parseFloat(g.grade))) totalUnits += u;
-
       const gradeVal = parseFloat(g.grade);
       if (!isNaN(gradeVal) && gradeVal > 3.0) {
         hasDisqualification = true;
@@ -517,11 +453,8 @@ const App: React.FC = () => {
     };
   }, [grades, units, groupedGrades]);
 
-  // --- ACADEMIC DISTINCTION LOGIC ---
   const distinctions = useMemo(() => {
     if (grades.length === 0) return [];
-
-    // Sort Semesters Oldest to Newest for the loop
     const sorted = Object.keys(groupedGrades).sort((a, b) => {
       const orderA = getSemesterOrder(a);
       const orderB = getSemesterOrder(b);
@@ -537,15 +470,11 @@ const App: React.FC = () => {
       color: string;
     }[] = [];
 
-    // Logic: Iterate through sorted semesters. If we find a "2nd Sem Year X", check if next is "1st Sem Year X+1"
     for (let i = 0; i < sorted.length - 1; i++) {
       const currentSem = sorted[i];
       const nextSem = sorted[i + 1];
-
       const orderC = getSemesterOrder(currentSem);
       const orderN = getSemesterOrder(nextSem);
-
-      // Check if pair is (2nd Sem, 1st Sem) and Consecutive Years
       const isConsecutivePair =
         orderC.semOrder === 2 &&
         orderN.semOrder === 1 &&
@@ -556,15 +485,12 @@ const App: React.FC = () => {
           ...(groupedGrades[currentSem] || []),
           ...(groupedGrades[nextSem] || []),
         ];
-
-        // Disqualification Check: No grade > 2.4
         const disqualified = batchGrades.some((g) => {
           const val = parseFloat(g.grade);
           return !isNaN(val) && val > 2.4;
         });
 
         if (!disqualified) {
-          // Strict GWA required for awards
           const gwaStr = calculateGWA(batchGrades, units, false);
           if (gwaStr !== "---") {
             const gwa = parseFloat(gwaStr);
@@ -587,15 +513,11 @@ const App: React.FC = () => {
         }
       }
     }
-
-    // Reverse to show Newest First in UI
     return items.reverse();
   }, [groupedGrades, units, grades]);
 
-  // --- LATIN HONOR FORECASTING ---
   const honorForecasts = useMemo(() => {
     if (overallStats.totalGWA === "---") return [];
-
     const currentGWA = parseFloat(overallStats.totalGWA);
     const currentUnits = overallStats.totalUnits;
     const totalUnitsProjected = currentUnits + remainingUnits;
@@ -649,16 +571,11 @@ const App: React.FC = () => {
           msg: "Mathematical limit reached",
         };
       }
-
-      // Formula: (CurrentGWA * CurrentUnits + RequiredGrade * RemainingUnits) / TotalUnits <= Cutoff
-      // RequiredGrade <= (Cutoff * TotalUnits - CurrentGWA * CurrentUnits) / RemainingUnits
       const maxTotalPoints = h.cutoff * totalUnitsProjected;
       const currentPoints = currentGWA * currentUnits;
       const requiredGrade = (maxTotalPoints - currentPoints) / remainingUnits;
-
       let prob = 0;
       let status = "";
-
       if (requiredGrade < 1.0) {
         (status = "Impossible"), (prob = 0);
       } else if (requiredGrade <= 1.1) {
@@ -693,16 +610,11 @@ const App: React.FC = () => {
   };
 
   const handleExport = () => {
-    // CSV Header
     const csvRows = [["Semester", "Subject", "Grade", "Equivalent", "Units"]];
-
-    // Data
     sortedSemesterEntries.forEach(([semester, items]) => {
       items.forEach((g) => {
         const unit = units[`${g.semester}-${g.subject}`] || "0";
-        // Escape quotes for CSV
         const safeSubject = `"${g.subject.replace(/"/g, '""')}"`;
-        // Wrap semester in quotes to prevent date parsing issues in Excel
         const safeSemester = `"${g.semester}"`;
         csvRows.push([
           safeSemester,
@@ -713,7 +625,6 @@ const App: React.FC = () => {
         ]);
       });
     });
-
     const csvContent = csvRows.map((e) => e.join(",")).join("\n");
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -731,13 +642,10 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen w-full flex items-start md:items-center justify-center p-4 relative overflow-y-auto font-sans">
-      {/* Background Orbs */}
       <div className="fixed top-[-5%] left-[-5%] w-[40%] h-[40%] bg-blue-500/10 rounded-full blur-[100px] animate-pulse pointer-events-none"></div>
       <div className="fixed bottom-[-5%] right-[-5%] w-[40%] h-[40%] bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none"></div>
 
-      {/* Main GlassCard - Mobile Optimized Height */}
       <GlassCard className="w-full max-w-5xl h-auto md:h-[85vh] min-h-0 md:min-h-[600px] flex flex-col md:flex-row overflow-hidden md:overflow-hidden relative z-10 border border-white shadow-xl rounded-[24px] my-4 md:my-0">
-        {/* SIDEBAR */}
         <div className="w-full md:w-[360px] p-6 border-b md:border-b-0 md:border-r border-white/40 flex flex-col bg-white/40 backdrop-blur-xl shrink-0">
           <div className="mb-8">
             <div className="flex items-center gap-3 mb-2">
@@ -753,55 +661,12 @@ const App: React.FC = () => {
             </p>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-3">
-            <Input
-              placeholder="Student Number"
-              icon={<IoPerson size={16} />}
-              value={studentId}
-              onChange={(e) => setStudentId(e.target.value)}
-              disabled={status === AppStatus.LOADING}
-            />
-            <Input
-              type="password"
-              placeholder="Password"
-              icon={<IoKey size={16} />}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              disabled={status === AppStatus.LOADING}
-            />
-
-            {status === AppStatus.ERROR && (
-              <div className="p-3 bg-red-50 border border-red-100 rounded-xl text-red-600 animate-in fade-in slide-in-from-top-2">
-                <div className="flex items-center gap-2">
-                  <IoCloseCircle size={16} />
-                  <span className="text-[10px] font-bold">{errorMessage}</span>
-                </div>
-              </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={status === AppStatus.LOADING}
-              className={`
-                w-full py-3 bg-blue-600 text-white rounded-xl font-bold text-sm 
-                transition-all flex items-center justify-center gap-2 
-                shadow-lg shadow-blue-500/30 active:scale-[0.97]
-                ${
-                  status === AppStatus.LOADING
-                    ? "opacity-70 cursor-not-allowed"
-                    : "hover:bg-blue-700"
-                }
-              `}
-            >
-              {status === AppStatus.LOADING ? (
-                <IoSyncOutline className="animate-spin" size={18} />
-              ) : (
-                <>
-                  SYNC NOW <IoRocket />
-                </>
-              )}
-            </button>
-          </form>
+          <LoginForm
+            key={formKey}
+            onSubmit={handleLogin}
+            status={status}
+            errorMessage={errorMessage}
+          />
 
           <div className="mt-auto pt-6 border-t border-white/40 space-y-2">
             <button
@@ -851,7 +716,6 @@ const App: React.FC = () => {
           </div>
         </div>
 
-        {/* CONTENT AREA - Mobile: Allow Body Scroll by removing fixed height constraints from parent (above) and using md:overflow-y-auto here */}
         <div className="flex-1 p-6 md:p-8 bg-white/20 md:overflow-y-auto custom-scrollbar">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-xl font-black text-slate-800 tracking-tight">
@@ -871,7 +735,7 @@ const App: React.FC = () => {
                     setGrades([]);
                     setStatus(AppStatus.IDLE);
                     setStudentId("");
-                    setPassword("");
+                    setFormKey((prev) => prev + 1); // Reset form state
                   }}
                   className="p-3 rounded-xl bg-white hover:bg-slate-50 text-slate-600 shadow-md active:scale-[0.97]"
                 >
@@ -881,7 +745,6 @@ const App: React.FC = () => {
             )}
           </div>
 
-          {/* GWA Calculation Notice */}
           {status === AppStatus.SUCCESS && (
             <div className="bg-blue-50/80 backdrop-blur-sm border border-blue-200 rounded-2xl p-4 mb-6 flex items-start gap-4 shadow-sm animate-in slide-in-from-top-2">
               <div className="text-blue-600 mt-0.5 shrink-0 bg-white rounded-full p-1 shadow-sm">
@@ -902,12 +765,9 @@ const App: React.FC = () => {
 
           {status === AppStatus.SUCCESS && (
             <div className="animate-in slide-in-from-bottom-4 duration-500 mb-6 space-y-6">
-              {/* MAIN STATS GRID */}
               <div className="grid grid-cols-3 gap-3">
                 <div className="relative overflow-hidden bg-gradient-to-br from-blue-600 to-indigo-600 rounded-2xl p-4 text-white shadow-lg shadow-blue-500/20">
-                  {/* Shine Effect */}
                   <div className="absolute top-[-50%] right-[-10%] w-20 h-20 bg-white/10 rounded-full blur-xl"></div>
-
                   <div className="flex items-center gap-2 opacity-80 mb-1">
                     <IoTrendingUp size={14} />
                     <span className="text-[10px] font-black uppercase tracking-widest">
@@ -957,7 +817,6 @@ const App: React.FC = () => {
                 </div>
               </div>
 
-              {/* LATIN HONOR FORECAST */}
               <div className="bg-white/50 backdrop-blur-md border border-white/60 rounded-[24px] p-6 shadow-sm">
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-2">
@@ -973,7 +832,6 @@ const App: React.FC = () => {
                       </p>
                     </div>
                   </div>
-
                   <div className="flex items-center gap-3 bg-white px-3 py-2 rounded-xl border border-slate-100 shadow-sm">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">
                       Remaining Units
@@ -996,7 +854,6 @@ const App: React.FC = () => {
                     </div>
                   </div>
                 </div>
-
                 <div className="space-y-3">
                   {honorForecasts.map((h, i) => (
                     <div
@@ -1016,22 +873,17 @@ const App: React.FC = () => {
                           </div>
                         </div>
                       </div>
-
                       <div className="flex flex-col items-end gap-1">
                         <div
-                          className={`
-                                     px-2 py-1 rounded-lg text-[9px] font-black uppercase tracking-wide
-                                     ${
-                                       h.status.includes("Impossible") ||
-                                       h.status.includes("Disqualified")
-                                         ? "bg-red-100 text-red-600"
-                                         : h.status === "Possible" ||
-                                           h.status === "Likely" ||
-                                           h.status === "Very Likely"
-                                         ? "bg-emerald-100 text-emerald-600"
-                                         : "bg-orange-100 text-orange-600"
-                                     }
-                                 `}
+                          className={`px-2 py-1 rounded-lg text-[9px] font-black uppercase tracking-wide ${
+                            h.status.includes("Impossible") ||
+                            h.status.includes("Disqualified")
+                              ? "bg-red-100 text-red-600"
+                              : h.status.includes("Likely") ||
+                                h.status.includes("Possible")
+                              ? "bg-emerald-100 text-emerald-600"
+                              : "bg-orange-100 text-orange-600"
+                          }`}
                         >
                           {h.status}
                         </div>
@@ -1060,7 +912,6 @@ const App: React.FC = () => {
                 </div>
               </div>
 
-              {/* ACADEMIC DISTINCTIONS LIST */}
               {distinctions.length > 0 && (
                 <div className="animate-in slide-in-from-bottom-6 duration-700 delay-100">
                   <div className="flex items-center gap-2 mb-3 px-1">
@@ -1073,14 +924,9 @@ const App: React.FC = () => {
                     {distinctions.map((d, i) => (
                       <div
                         key={i}
-                        className={`
-                          snap-center shrink-0 w-[260px] p-5 rounded-2xl text-white shadow-lg relative overflow-hidden
-                          bg-gradient-to-br ${d.color}
-                        `}
+                        className={`snap-center shrink-0 w-[260px] p-5 rounded-2xl text-white shadow-lg relative overflow-hidden bg-gradient-to-br ${d.color}`}
                       >
-                        {/* Decorative shine */}
                         <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-2xl -mr-10 -mt-10 pointer-events-none"></div>
-
                         <div className="relative z-10">
                           <div className="flex items-start justify-between mb-4">
                             <div className="p-2 bg-white/20 backdrop-blur-md rounded-lg">
@@ -1095,7 +941,6 @@ const App: React.FC = () => {
                               </div>
                             </div>
                           </div>
-
                           <h4 className="font-black text-lg leading-tight mb-1">
                             {d.title}
                           </h4>
@@ -1113,18 +958,13 @@ const App: React.FC = () => {
 
           <div className="space-y-4">
             {sortedSemesterEntries.map(([semester, items]) => {
-              // Semester GWA ignores missing to show current standing
               const semGWAStr = calculateGWA(items, units, true);
               const strictSemGWA = calculateGWA(items, units, false);
               const isSemPartial =
                 strictSemGWA === "---" && semGWAStr !== "---";
-
-              // Per-Semester Distinction Check (assuming no grade > 2.4 logic applies here too for consistency, or just >3.0)
-              // Usually DL per sem is just based on GWA and no failing grades.
               let semDistinction = null;
               if (semGWAStr !== "---") {
                 const gwa = parseFloat(semGWAStr);
-                // Check for failing or low grades
                 const hasLowGrade = items.some((g) => {
                   const v = parseFloat(g.grade);
                   return !isNaN(v) && v > 3.0;
@@ -1187,7 +1027,6 @@ const App: React.FC = () => {
                           </span>
                         )}
                       </div>
-
                       {expandedSemesters[semester] ? (
                         <IoChevronDown size={18} className="text-slate-400" />
                       ) : (
@@ -1198,7 +1037,6 @@ const App: React.FC = () => {
                       )}
                     </div>
                   </button>
-
                   {expandedSemesters[semester] && (
                     <div className="px-4 pb-4 space-y-2">
                       <div className="flex text-[10px] font-bold text-slate-400 px-4 uppercase tracking-widest">
@@ -1268,7 +1106,6 @@ const App: React.FC = () => {
           </div>
         </div>
 
-        {/* MODALS (Grading Scale, Privacy, Feedback) */}
         {showGradingScale && (
           <div className="absolute inset-0 bg-white/95 backdrop-blur-3xl z-30 p-8 overflow-y-auto animate-in slide-in-from-right duration-500">
             <div className="max-w-2xl mx-auto">
@@ -1397,7 +1234,6 @@ const App: React.FC = () => {
                   <IoChevronDown size={20} />
                 </button>
               </div>
-
               {feedbackSuccess ? (
                 <div className="p-8 bg-green-50 border border-green-100 rounded-3xl flex flex-col items-center justify-center text-center animate-in zoom-in duration-300">
                   <div className="w-16 h-16 bg-green-500 rounded-full flex items-center justify-center text-white mb-4 shadow-lg shadow-green-500/30">
@@ -1447,7 +1283,6 @@ const App: React.FC = () => {
         )}
       </GlassCard>
 
-      {/* SYNCING MODAL */}
       {isModalOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/70 backdrop-blur-md p-4">
           <div className="bg-white rounded-[2rem] p-8 max-w-xs w-full text-center shadow-2xl">
@@ -1462,25 +1297,20 @@ const App: React.FC = () => {
                 )}
               </div>
             </div>
-
             <h2 className="text-lg font-black text-slate-800 mb-1">
               {queuePosition ? "Queued" : "Synchronizing"}
             </h2>
-
             <div className="flex items-center justify-center gap-2 mb-6 text-blue-600/80">
               <IoTimeOutline size={14} />
               <span className="font-mono text-sm font-bold">
                 {formatDuration(elapsedTime)}
               </span>
             </div>
-
-            {/* Status Message */}
             <div className="mb-6 p-3 bg-blue-50 rounded-xl border border-blue-100 min-h-[60px] flex items-center justify-center">
               <p className="text-xs font-bold text-blue-600 tracking-wide animate-pulse leading-snug">
                 {statusMessage}
               </p>
             </div>
-
             <div className="space-y-3">
               <Step
                 label="Queue / Connect"
@@ -1498,7 +1328,6 @@ const App: React.FC = () => {
                 done={false}
               />
             </div>
-
             {activeServer && (
               <div className="mt-8 pt-4 border-t border-slate-100 animate-in slide-in-from-bottom-2">
                 <div className="flex items-center justify-between px-2 text-xs">
