@@ -4,7 +4,6 @@ import cors from "cors";
 import path from "path";
 import { fileURLToPath } from "url";
 import rateLimit from "express-rate-limit";
-import crypto from "crypto";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -29,20 +28,6 @@ const TARGET_URL =
 // Use Env Var for Secret
 const RECAPTCHA_SECRET_KEY = process.env.RECAPTCHA_SECRET_KEY;
 
-// ================= CACHE SYSTEM =================
-const CACHE_TTL_MS = 30 * 60 * 1000; // 30 Minutes
-const resultCache = new Map();
-
-// Periodic Cache Cleanup (Every 1 minute)
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, val] of resultCache.entries()) {
-    if (now - val.timestamp > CACHE_TTL_MS) {
-      resultCache.delete(key);
-    }
-  }
-}, 60000);
-
 // ================= MIDDLEWARE =================
 // TRUST PROXY IS REQUIRED FOR RATE LIMITER BEHIND PROXIES (RAILWAY/DOCKER)
 app.set("trust proxy", 1);
@@ -56,7 +41,7 @@ app.use("/ibu-sync", express.static(path.join(__dirname, "dist")));
 // 2. Rate Limiting (Security)
 const limiter = rateLimit({
   windowMs: 1 * 60 * 1000, // 1 minute
-  max: 10, // Limit each IP to 10 requests per minute
+  max: 3, // Limit each IP to 10 requests per minute
   message: { error: "Too many requests. Please try again later." },
   standardHeaders: true,
   legacyHeaders: false,
@@ -218,44 +203,6 @@ const processQueue = async () => {
 const runScrapeJob = async (req, res) => {
   const { studentId, password } = req.body;
   let page = null;
-
-  // 0. CACHE CHECK
-  const cacheKey = crypto
-    .createHash("sha256")
-    .update(`${studentId}:${password}`)
-    .digest("hex");
-
-  const cached = resultCache.get(cacheKey);
-
-  if (cached) {
-    const isFresh = Date.now() - cached.timestamp < CACHE_TTL_MS;
-    const hasPendingGrades = cached.data.some((g) => {
-      const grade = String(g.grade).toUpperCase();
-      return (
-        grade.includes("INC") ||
-        grade.includes("N/A") ||
-        grade.includes("INCOMPLETE") ||
-        grade === ""
-      );
-    });
-
-    if (isFresh && !hasPendingGrades) {
-      console.log(`[Cache] HIT for ${studentId} (Data is clean)`);
-      res.write(
-        JSON.stringify({
-          type: "status",
-          message: "Retrieving from Secure Cache...",
-        }) + "\n",
-      );
-      res.write(JSON.stringify({ type: "success", data: cached.data }) + "\n");
-      res.end();
-      return;
-    } else {
-      console.log(
-        `[Cache] MISS/STALE for ${studentId} (Fresh: ${isFresh}, Pending: ${hasPendingGrades})`,
-      );
-    }
-  }
 
   // 3. Client Disconnect Handling
   req.on("close", async () => {
@@ -470,9 +417,6 @@ const runScrapeJob = async (req, res) => {
     }));
 
     clearTimeout(timeoutId);
-
-    // Save to Cache (Update timestamp and data)
-    resultCache.set(cacheKey, { timestamp: Date.now(), data: processed });
 
     // Final Success Response
     res.write(JSON.stringify({ type: "success", data: processed }) + "\n");
