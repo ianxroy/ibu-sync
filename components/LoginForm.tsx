@@ -29,6 +29,12 @@ export const LoginForm: React.FC<LoginFormProps> = ({
   const [localPassword, setLocalPassword] = useState("");
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
 
+  // Use VITE_RECAPTCHA_SITE_KEY from env, or fallback to Google's standard Test Site Key
+  // Test Key: 6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI (Always works, shows warning)
+  const SITE_KEY =
+    import.meta.env.VITE_RECAPTCHA_SITE_KEY ||
+    "6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI";
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (localStudentId && localPassword && captchaToken) {
@@ -62,7 +68,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({
 
       <div className="flex justify-center py-2">
         <ReCAPTCHA
-          sitekey="6LfU0EwsAAAAAMAMBq5MwZtyOBym5p0qzQKFQdh1"
+          sitekey={SITE_KEY}
           onChange={onCaptchaChange}
           size="compact"
         />

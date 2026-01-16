@@ -11,9 +11,10 @@ import puppeteer from "puppeteer-core";
  * 3. Users are responsible for ensuring they have the right to access the data requested.
  */
 
+// Use Google Test Secret Key by default if env var is missing
 const RECAPTCHA_SECRET_KEY =
   process.env.RECAPTCHA_SECRET_KEY ||
-  "6LfU0EwsAAAAACkiGQvoVU2yvjpedXcTyNWFOjsJ";
+  "6LeIxAcTAAAAAGG-vFI1TnRWxMZNFuojJ4WifJWe";
 
 const getEquivalent = (grade: string): string => {
   const map: Record<string, string> = {
