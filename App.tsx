@@ -293,24 +293,27 @@ const App: React.FC = () => {
 
         for (const line of lines) {
           if (!line.trim()) continue;
+          let msg;
           try {
-            const msg = JSON.parse(line);
-
-            if (msg.type === "queue") {
-              setQueuePosition(msg.position);
-              setStatusMessage(msg.message);
-            } else if (msg.type === "status") {
-              // If we get a status update, we aren't in queue anymore (or position is 0)
-              setQueuePosition(null);
-              setStatusMessage(msg.message);
-            } else if (msg.type === "success") {
-              processGrades(msg.data);
-              return; // Exit loop
-            } else if (msg.type === "error") {
-              throw new Error(msg.error || "An error occurred");
-            }
+            msg = JSON.parse(line);
           } catch (e) {
-            console.error("Error parsing stream JSON", e);
+            console.error("Error parsing JSON chunk:", e, line);
+            continue;
+          }
+
+          if (msg.type === "queue") {
+            setQueuePosition(msg.position);
+            setStatusMessage(msg.message);
+          } else if (msg.type === "status") {
+            // If we get a status update, we aren't in queue anymore (or position is 0)
+            setQueuePosition(null);
+            setStatusMessage(msg.message);
+          } else if (msg.type === "success") {
+            processGrades(msg.data);
+            return; // Exit loop
+          } else if (msg.type === "error") {
+            // Handle error immediately and break out of the loop
+            throw new Error(msg.error || "An error occurred");
           }
         }
       }

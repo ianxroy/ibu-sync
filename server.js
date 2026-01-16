@@ -17,6 +17,9 @@ const MAX_QUEUE_SIZE = 15; // Max users waiting
 const JOB_TIMEOUT_MS = 60000; // 60s hard timeout per scrape
 const BROWSER_RESTART_LIMIT = 100; // Restart browser after this many jobs to prevent leaks
 
+// ReCAPTCHA Configuration
+const RECAPTCHA_SECRET = "6LfU0EwsAAAAACkiGQvoVU2yvjpedXcTyNWFOjsJ";
+
 // ================= MIDDLEWARE =================
 app.use(cors());
 // 1. Body Size Limit (Security)
@@ -122,6 +125,28 @@ const applyStealth = async (page) => {
     // @ts-ignore
     window.chrome = { runtime: {} };
   });
+};
+
+const verifyCaptcha = async (token) => {
+  if (!token) return false;
+  try {
+    const params = new URLSearchParams();
+    params.append("secret", RECAPTCHA_SECRET);
+    params.append("response", token);
+
+    const response = await fetch(
+      "https://www.google.com/recaptcha/api/siteverify",
+      {
+        method: "POST",
+        body: params,
+      }
+    );
+    const data = await response.json();
+    return data.success;
+  } catch (error) {
+    console.error("ReCAPTCHA Verification Error:", error);
+    return false;
+  }
 };
 
 // ================= JOB PROCESSING =================
@@ -368,8 +393,16 @@ app.get("/api/health", (req, res) => {
   });
 });
 
-app.post("/api/scrape", (req, res) => {
-  const { studentId, password } = req.body;
+app.post("/api/scrape", async (req, res) => {
+  const { studentId, password, captchaToken } = req.body;
+
+  // 1. CAPTCHA Verification
+  const isHuman = await verifyCaptcha(captchaToken);
+  if (!isHuman) {
+    return res
+      .status(403)
+      .json({ error: "CAPTCHA check failed. Please refresh and try again." });
+  }
 
   // 4. Input Validation
   if (
