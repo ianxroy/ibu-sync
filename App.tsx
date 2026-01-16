@@ -40,18 +40,30 @@ import { SUBJECT_UNITS } from "./subjects";
 
 /* ================= CONSTANTS ================= */
 // Parse environment variable for backend URLs (comma separated)
-// Safely check if import.meta.env exists to prevent runtime crashes
 const getBackendUrls = () => {
+  let urls = "";
   try {
     // @ts-ignore - Handle potential undefined env at runtime
     if (import.meta && import.meta.env && import.meta.env.VITE_BACKEND_URLS) {
       // @ts-ignore
-      return import.meta.env.VITE_BACKEND_URLS;
+      urls = import.meta.env.VITE_BACKEND_URLS;
     }
   } catch (e) {
     // Fallback if access fails
   }
-  return "";
+
+  // FORCE: Add the production Railway URL to ensure it is always available
+  const prodUrl = "https://ibu-sync-production.up.railway.app";
+
+  // If urls is empty, just return prodUrl
+  if (!urls) return prodUrl;
+
+  // If prodUrl is not in the list, append it
+  if (!urls.includes(prodUrl)) {
+    return `${urls},${prodUrl}`;
+  }
+
+  return urls;
 };
 
 const BACKEND_URLS = getBackendUrls()
@@ -178,31 +190,10 @@ const App: React.FC = () => {
   // --- CONNECT TO SERVER ---
   const connectToServer = async (): Promise<ServerNode> => {
     // 1. Try Relative/Local connection first (Best for Docker/Self-Hosted)
-    const startLocal = Date.now();
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 2000);
+    // Only try this if we are NOT on Vercel or if we think local api exists.
+    // However, to prioritize Railway, we will try Configured Backends first if they exist.
 
-      // Attempt to hit the relative API endpoint
-      const res = await fetch(`/api/health`, {
-        signal: controller.signal,
-        method: "GET",
-      });
-      clearTimeout(timeoutId);
-
-      if (res.ok) {
-        const endLocal = Date.now();
-        return {
-          url: "", // Empty string implies relative URL
-          name: "Local / Self-Hosted",
-          latency: endLocal - startLocal,
-        };
-      }
-    } catch (e) {
-      // Ignore and fall back to configured backends
-    }
-
-    // 2. Iterate through Environment Configured Backends
+    // 2. Iterate through Environment Configured Backends (Including Railway)
     if (BACKEND_URLS.length > 0) {
       for (const baseUrl of BACKEND_URLS) {
         const start = Date.now();
@@ -220,7 +211,7 @@ const App: React.FC = () => {
             const end = Date.now();
             return {
               url: baseUrl,
-              name: "Cloud Node",
+              name: "Cloud Node (Railway)",
               latency: end - start,
             };
           }
@@ -228,22 +219,40 @@ const App: React.FC = () => {
           console.warn(`Failed to connect to ${baseUrl}`, e);
         }
       }
-
-      // 3. Hail Mary: Return the first configured backend even if health check failed
-      console.warn(
-        "All health checks failed, defaulting to primary configured backend."
-      );
-      return {
-        url: BACKEND_URLS[0],
-        name: "Cloud Node (Unverified)",
-        latency: undefined,
-      };
     }
 
-    // Default to local if no env vars are set
+    // 3. Fallback to Local/Relative (Vercel Functions or Docker)
+    const startLocal = Date.now();
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 2000);
+
+      const res = await fetch(`/api/health`, {
+        signal: controller.signal,
+        method: "GET",
+      });
+      clearTimeout(timeoutId);
+
+      if (res.ok) {
+        const endLocal = Date.now();
+        return {
+          url: "", // Empty string implies relative URL
+          name: "Local / Serverless",
+          latency: endLocal - startLocal,
+        };
+      }
+    } catch (e) {
+      // Ignore
+    }
+
+    // 4. Hail Mary: Return the primary backend (Railway) even if health check failed
+    // This assumes the health check might be blocked but the scrape endpoint works
+    console.warn(
+      "All health checks failed, defaulting to primary configured backend."
+    );
     return {
-      url: "",
-      name: "Local / Self-Hosted",
+      url: BACKEND_URLS[0] || "",
+      name: "Cloud Node (Unverified)",
       latency: undefined,
     };
   };
@@ -265,7 +274,7 @@ const App: React.FC = () => {
       const server = await connectToServer();
       setActiveServer(server);
 
-      // 2. Scrape with Streaming NDJSON
+      // 2. Scrape
       const endpoint = `${server.url}/api/scrape`;
 
       const response = await fetch(endpoint, {
@@ -274,8 +283,31 @@ const App: React.FC = () => {
         body: JSON.stringify({ studentId, password }),
       });
 
+      // HYBRID HANDLING: Check content type to decide how to process
+      const contentType = response.headers.get("content-type");
+
+      // CASE A: Standard JSON (Vercel / Non-streaming)
+      if (
+        contentType &&
+        contentType.includes("application/json") &&
+        !contentType.includes("ndjson")
+      ) {
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || "Failed to fetch grades");
+        }
+        if (Array.isArray(data)) {
+          processGrades(data);
+          return;
+        } else if (data.data && Array.isArray(data.data)) {
+          // Handle wrapper object { data: [...] }
+          processGrades(data.data);
+          return;
+        }
+      }
+
+      // CASE B: Streaming NDJSON (Railway / Docker)
       if (!response.body) {
-        // Handle 403 Forbidden (Captcha Failed) separately if possible, or generic error
         if (response.status === 403) throw new Error("Security check failed.");
         throw new Error("No response body");
       }
