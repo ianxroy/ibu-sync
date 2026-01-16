@@ -16,12 +16,12 @@ const MAX_CONCURRENT_JOBS = parseInt(process.env.MAX_CONCURRENT_JOBS || "5");
 const MAX_QUEUE_SIZE = parseInt(process.env.MAX_QUEUE_SIZE || "15");
 const JOB_TIMEOUT_MS = parseInt(process.env.JOB_TIMEOUT_MS || "60000");
 const BROWSER_RESTART_LIMIT = parseInt(
-  process.env.BROWSER_RESTART_LIMIT || "100"
+  process.env.BROWSER_RESTART_LIMIT || "100",
 );
 
 // Scraper specific timeouts
 const PAGE_LOAD_TIMEOUT = parseInt(process.env.PAGE_LOAD_TIMEOUT || "45000");
-const SELECTOR_TIMEOUT = parseInt(process.env.SELECTOR_TIMEOUT || "15000");
+const SELECTOR_TIMEOUT = parseInt(process.env.SELECTOR_TIMEOUT || "30000");
 const TARGET_URL =
   process.env.TARGET_URL || "https://systems.bicol-u.edu.ph/ibu-beta";
 
@@ -130,7 +130,7 @@ const applyStealth = async (page) => {
     "Accept-Language": "en-US,en;q=0.9",
   });
   await page.setUserAgent(
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
   );
   await page.evaluateOnNewDocument(() => {
     Object.defineProperty(navigator, "webdriver", { get: () => undefined });
@@ -146,7 +146,7 @@ const verifyCaptcha = async (token) => {
       `https://www.google.com/recaptcha/api/siteverify?secret=${RECAPTCHA_SECRET_KEY}&response=${token}`,
       {
         method: "POST",
-      }
+      },
     );
     const data = await response.json();
 
@@ -172,7 +172,7 @@ const processQueue = async () => {
         type: "queue",
         position: index + 1,
         message: `Waiting in queue (Pos: ${index + 1})...`,
-      }) + "\n"
+      }) + "\n",
     );
   });
 
@@ -185,7 +185,7 @@ const processQueue = async () => {
         JSON.stringify({
           type: "error",
           error: error.message || "Server Error",
-        }) + "\n"
+        }) + "\n",
       );
       job.res.end();
     }
@@ -231,7 +231,7 @@ const runScrapeJob = async (req, res) => {
         if (!res.writableEnded) {
           res.write(
             JSON.stringify({ type: "error", error: "Operation Timed Out" }) +
-              "\n"
+              "\n",
           );
           res.end();
         }
@@ -245,7 +245,7 @@ const runScrapeJob = async (req, res) => {
     page.on("request", (request) => {
       if (
         ["image", "media", "font", "stylesheet"].includes(
-          request.resourceType()
+          request.resourceType(),
         )
       ) {
         request.abort();
@@ -258,7 +258,7 @@ const runScrapeJob = async (req, res) => {
       JSON.stringify({
         type: "status",
         message: "Connecting to University Portal...",
-      }) + "\n"
+      }) + "\n",
     );
 
     // --- LOGIN ---
@@ -270,11 +270,11 @@ const runScrapeJob = async (req, res) => {
     const captchaDetected = await page.evaluate(
       () =>
         document.body.innerText.includes("captcha") ||
-        window.location.href.includes(".well-known")
+        window.location.href.includes(".well-known"),
     );
     if (captchaDetected)
       throw new Error(
-        "University Firewall Blocked Request. Try again in 5 mins."
+        "University Firewall Blocked Request. Try again in 5 mins.",
       );
 
     // Check if we were redirected away from login (e.g. session active)
@@ -291,7 +291,7 @@ const runScrapeJob = async (req, res) => {
       await page.type("#student-password-1", password);
 
       res.write(
-        JSON.stringify({ type: "status", message: "Authenticating..." }) + "\n"
+        JSON.stringify({ type: "status", message: "Authenticating..." }) + "\n",
       );
 
       await Promise.all([
@@ -317,18 +317,18 @@ const runScrapeJob = async (req, res) => {
         throw new Error(
           errorMsg.includes("Invalid")
             ? "Invalid Student ID or Password"
-            : errorMsg
+            : errorMsg,
         );
       }
     } else {
       console.log(
-        `[Job] Redirected to ${currentUrl} (session active?), skipping login form.`
+        `[Job] Redirected to ${currentUrl} (session active?), skipping login form.`,
       );
       res.write(
         JSON.stringify({
           type: "status",
           message: "Session restored, skipping login...",
-        }) + "\n"
+        }) + "\n",
       );
     }
 
@@ -336,7 +336,7 @@ const runScrapeJob = async (req, res) => {
       JSON.stringify({
         type: "status",
         message: "Fetching Academic Records...",
-      }) + "\n"
+      }) + "\n",
     );
 
     // --- GRADES ---
@@ -361,7 +361,7 @@ const runScrapeJob = async (req, res) => {
       // Send heartbeat to keep connection alive
       res.write(
         JSON.stringify({ type: "status", message: `Reading ${sem.text}...` }) +
-          "\n"
+          "\n",
       );
 
       // 1. Select the Option
@@ -385,9 +385,13 @@ const runScrapeJob = async (req, res) => {
       }
 
       const grades = await page.evaluate((semName) => {
+        // IMPORTANT: Filter by visibility (offsetParent !== null)
+        // This prevents scraping ALL subjects if the dropdown simply hides other rows via CSS
         const rows = Array.from(document.querySelectorAll("table tbody tr"));
         return rows
           .map((row) => {
+            if (row.offsetParent === null) return null; // Hidden row
+
             const cells = row.querySelectorAll("td");
             if (cells.length < 3) return null;
             const subject = cells[1].textContent.trim();
@@ -477,7 +481,7 @@ app.post("/api/scrape", async (req, res) => {
       type: "queue",
       position: queuePosition,
       message: `Queued (Position: ${queuePosition})...`,
-    }) + "\n"
+    }) + "\n",
   );
 
   queue.push({ req, res });
@@ -492,6 +496,6 @@ app.get("*", (req, res) => {
 app.listen(PORT, () => {
   console.log(`🚀 iBU Sync Server running on port ${PORT}`);
   console.log(
-    `System: ${MAX_CONCURRENT_JOBS} Workers, ${MAX_QUEUE_SIZE} Queue Limit`
+    `System: ${MAX_CONCURRENT_JOBS} Workers, ${MAX_QUEUE_SIZE} Queue Limit`,
   );
 });

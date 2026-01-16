@@ -68,11 +68,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       (verifyJson.score !== undefined && verifyJson.score < 0.5)
     ) {
       console.error("Captcha failed/low score:", verifyJson);
-      return res
-        .status(403)
-        .json({
-          error: "Security check failed (Low Score). Please try again.",
-        });
+      return res.status(403).json({
+        error: "Security check failed (Low Score). Please try again.",
+      });
     }
   } catch (e) {
     console.error("Captcha error:", e);
