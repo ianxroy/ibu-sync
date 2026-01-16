@@ -46,9 +46,13 @@ const App: React.FC = () => {
     activeServerUrl,
   } = useScraper();
 
-  const handleLogin = (id: string, pass: string) => {
+  const handleLogin = (
+    id: string,
+    pass: string,
+    captchaToken: string | null
+  ) => {
     setStudentId(id);
-    loginAndScrape(id, pass);
+    loginAndScrape(id, pass, captchaToken);
   };
 
   const handleFeedbackSubmit = async (e: React.FormEvent) => {

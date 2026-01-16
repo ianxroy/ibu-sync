@@ -6,11 +6,16 @@ import {
   IoSyncOutline,
   IoCloseCircle,
 } from "react-icons/io5";
+import ReCAPTCHA from "react-google-recaptcha";
 import { Input } from "./ui/Input";
 import { AppStatus } from "../types";
 
 interface LoginFormProps {
-  onSubmit: (studentId: string, password: string) => void;
+  onSubmit: (
+    studentId: string,
+    password: string,
+    captchaToken: string | null
+  ) => void;
   status: AppStatus;
   errorMessage?: string;
 }
@@ -22,12 +27,17 @@ export const LoginForm: React.FC<LoginFormProps> = ({
 }) => {
   const [localStudentId, setLocalStudentId] = useState("");
   const [localPassword, setLocalPassword] = useState("");
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (localStudentId && localPassword) {
-      onSubmit(localStudentId, localPassword);
+    if (localStudentId && localPassword && captchaToken) {
+      onSubmit(localStudentId, localPassword, captchaToken);
     }
+  };
+
+  const onCaptchaChange = (token: string | null) => {
+    setCaptchaToken(token);
   };
 
   const isLoading = status === AppStatus.LOADING;
@@ -50,6 +60,14 @@ export const LoginForm: React.FC<LoginFormProps> = ({
         disabled={isLoading}
       />
 
+      <div className="flex justify-center py-2">
+        <ReCAPTCHA
+          sitekey="6LfU0EwsAAAAAMAMBq5MwZtyOBym5p0qzQKFQdh1"
+          onChange={onCaptchaChange}
+          size="compact"
+        />
+      </div>
+
       {status === AppStatus.ERROR && errorMessage && (
         <div className="p-3 bg-red-50 border border-red-100 rounded-xl text-red-600 animate-in fade-in slide-in-from-top-2">
           <div className="flex items-center gap-2">
@@ -63,13 +81,15 @@ export const LoginForm: React.FC<LoginFormProps> = ({
 
       <button
         type="submit"
-        disabled={isLoading || !localStudentId || !localPassword}
+        disabled={
+          isLoading || !localStudentId || !localPassword || !captchaToken
+        }
         className={`
           w-full py-3 bg-blue-600 text-white rounded-xl font-bold text-sm 
           transition-all flex items-center justify-center gap-2 
           shadow-lg shadow-blue-500/30 active:scale-[0.97]
           ${
-            isLoading || !localStudentId || !localPassword
+            isLoading || !localStudentId || !localPassword || !captchaToken
               ? "opacity-70 cursor-not-allowed"
               : "hover:bg-blue-700"
           }

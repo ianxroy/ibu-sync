@@ -11,6 +11,10 @@ import puppeteer from "puppeteer-core";
  * 3. Users are responsible for ensuring they have the right to access the data requested.
  */
 
+const RECAPTCHA_SECRET_KEY =
+  process.env.RECAPTCHA_SECRET_KEY ||
+  "6LfU0EwsAAAAACkiGQvoVU2yvjpedXcTyNWFOjsJ";
+
 const getEquivalent = (grade: string): string => {
   const map: Record<string, string> = {
     "1.0": "99-100",
@@ -53,10 +57,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { studentId, password } = req.body;
+  const { studentId, password, captchaToken } = req.body;
 
   if (!studentId || !password) {
     return res.status(400).json({ error: "Missing credentials" });
+  }
+
+  // CAPTCHA Verification
+  try {
+    const verifyRes = await fetch(
+      `https://www.google.com/recaptcha/api/siteverify?secret=${RECAPTCHA_SECRET_KEY}&response=${captchaToken}`,
+      {
+        method: "POST",
+      }
+    );
+    const verifyJson = await verifyRes.json();
+    if (!verifyJson.success) {
+      return res.status(403).json({ error: "CAPTCHA verification failed." });
+    }
+  } catch (e) {
+    console.error("Captcha error:", e);
+    return res.status(500).json({ error: "Failed to verify CAPTCHA." });
   }
 
   let browser = null;

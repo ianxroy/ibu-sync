@@ -20,10 +20,13 @@ const BROWSER_RESTART_LIMIT = parseInt(
 );
 
 // Scraper specific timeouts
-const PAGE_LOAD_TIMEOUT = parseInt(process.env.PAGE_LOAD_TIMEOUT || "45000"); // Increased default
-const SELECTOR_TIMEOUT = parseInt(process.env.SELECTOR_TIMEOUT || "30000"); // Increased default from 15s to 30s
+const PAGE_LOAD_TIMEOUT = parseInt(process.env.PAGE_LOAD_TIMEOUT || "45000");
+const SELECTOR_TIMEOUT = parseInt(process.env.SELECTOR_TIMEOUT || "30000");
 const TARGET_URL =
   process.env.TARGET_URL || "https://systems.bicol-u.edu.ph/ibu-beta";
+const RECAPTCHA_SECRET_KEY =
+  process.env.RECAPTCHA_SECRET_KEY ||
+  "6LfU0EwsAAAAACkiGQvoVU2yvjpedXcTyNWFOjsJ";
 
 // ================= MIDDLEWARE =================
 // TRUST PROXY IS REQUIRED FOR RATE LIMITER BEHIND PROXIES (RAILWAY/DOCKER)
@@ -42,7 +45,7 @@ const limiter = rateLimit({
   message: { error: "Too many requests. Please try again later." },
   standardHeaders: true,
   legacyHeaders: false,
-  validate: { xForwardedForHeader: false }, // Disable strict validation if trust proxy is set, but extra safety
+  validate: { xForwardedForHeader: false },
 });
 app.use("/api/scrape", limiter);
 
@@ -134,6 +137,23 @@ const applyStealth = async (page) => {
     // @ts-ignore
     window.chrome = { runtime: {} };
   });
+};
+
+const verifyCaptcha = async (token) => {
+  if (!token) return false;
+  try {
+    const response = await fetch(
+      `https://www.google.com/recaptcha/api/siteverify?secret=${RECAPTCHA_SECRET_KEY}&response=${token}`,
+      {
+        method: "POST",
+      }
+    );
+    const data = await response.json();
+    return data.success;
+  } catch (e) {
+    console.error("Captcha verification error:", e);
+    return false;
+  }
 };
 
 // ================= JOB PROCESSING =================
@@ -407,7 +427,7 @@ app.get("/api/health", (req, res) => {
 });
 
 app.post("/api/scrape", async (req, res) => {
-  const { studentId, password } = req.body;
+  const { studentId, password, captchaToken } = req.body;
 
   // 4. Input Validation
   if (
@@ -419,7 +439,15 @@ app.post("/api/scrape", async (req, res) => {
     return res.status(400).json({ error: "Invalid credentials format" });
   }
 
-  // 5. Queue Limit Check
+  // 5. Captcha Verification
+  const isHuman = await verifyCaptcha(captchaToken);
+  if (!isHuman) {
+    return res
+      .status(403)
+      .json({ error: "CAPTCHA verification failed. Please try again." });
+  }
+
+  // 6. Queue Limit Check
   if (queue.length >= MAX_QUEUE_SIZE) {
     return res.status(503).json({
       error:
