@@ -58,7 +58,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       `https://www.google.com/recaptcha/api/siteverify?secret=${RECAPTCHA_SECRET_KEY}&response=${captchaToken}`,
       {
         method: "POST",
-      }
+      },
     );
     const verifyJson = await verifyRes.json();
 
@@ -68,9 +68,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       (verifyJson.score !== undefined && verifyJson.score < 0.5)
     ) {
       console.error("Captcha failed/low score:", verifyJson);
-      return res.status(403).json({
-        error: "Security check failed (Low Score). Please try again.",
-      });
+      return res
+        .status(403)
+        .json({
+          error: "Security check failed (Low Score). Please try again.",
+        });
     }
   } catch (e) {
     console.error("Captcha error:", e);
@@ -145,7 +147,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (errorElement) {
       const errorText = await page.evaluate(
         (el) => el.textContent?.trim(),
-        errorElement
+        errorElement,
       );
       throw new Error(errorText || "Login failed");
     }
@@ -190,10 +192,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       } catch (e) {}
 
       const semesterGrades = await page.evaluate((semText) => {
-        const rows = document.querySelectorAll("table tbody tr");
+        // IMPORTANT: Only select visible rows. The portal might just hide rows instead of removing them.
+        const rows = Array.from(document.querySelectorAll("table tbody tr"));
         const results: { semester: string; subject: string; grade: string }[] =
           [];
+
         rows.forEach((row) => {
+          // Check for visibility using offsetParent (null if hidden/display:none)
+          if ((row as HTMLElement).offsetParent === null) return;
+
           const cells = row.querySelectorAll("td");
           if (cells.length >= 3) {
             const subject = cells[1].textContent?.trim() || "";
@@ -214,7 +221,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         ...semesterGrades.map((g) => ({
           ...g,
           equivalent: getEquivalent(g.grade),
-        }))
+        })),
       );
     }
 
