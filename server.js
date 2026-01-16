@@ -367,7 +367,6 @@ app.get("/api/health", (req, res) => {
 
 app.post("/api/scrape", (req, res) => {
   const { studentId, password } = req.body;
-
   // 4. Input Validation
   if (
     !studentId ||
