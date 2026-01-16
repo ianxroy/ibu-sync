@@ -244,6 +244,7 @@ const runScrapeJob = async (req, res) => {
       waitUntil: "domcontentloaded",
       timeout: PAGE_LOAD_TIMEOUT,
     });
+    console.log(`[Job] Current URL after initial navigation: ${page.url()}`);
 
     const captchaDetected = await page.evaluate(
       () =>
@@ -277,6 +278,8 @@ const runScrapeJob = async (req, res) => {
 
     // Check login success
     const url = page.url();
+    console.log(`[Job] Current URL after login attempt: ${url}`);
+
     if (url.includes("/login")) {
       // Fix: Trim whitespace from error message to prevent JSON issues and massive logs
       const errorMsg = await page
@@ -302,6 +305,7 @@ const runScrapeJob = async (req, res) => {
       waitUntil: "domcontentloaded",
       timeout: PAGE_LOAD_TIMEOUT,
     });
+    console.log(`[Job] Current URL after navigating to grades: ${page.url()}`);
 
     const semesters = await page.evaluate(() => {
       const select = document.querySelector("#semesters");
