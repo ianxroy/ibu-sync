@@ -7,7 +7,6 @@ export const SUBJECT_UNITS: Record<string, string> = {
 
   // 3.0 Units
   "CWTS/LTS/ROTC": "3.0",
-  "Understanding the Self": "3.0",
   "Readings in Philippine History": "3.0",
   "The Contemporary World": "3.0",
   "Mathematics in the Modern World": "3.0",
