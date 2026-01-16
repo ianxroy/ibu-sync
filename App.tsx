@@ -1,4 +1,5 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
+import ReCAPTCHA from "react-google-recaptcha";
 import {
   IoSchool,
   IoPerson,
@@ -58,6 +59,8 @@ const BACKEND_URLS = getBackendUrls()
   .split(",")
   .map((url: string) => url.trim())
   .filter((url: string) => url.length > 0);
+
+const RECAPTCHA_SITE_KEY = "6LfU0EwsAAAAAMAMBq5MwZtyOBym5p0qzQKFQdh1";
 
 const GRADING_SCALE = [
   { rating: "Outstanding", grade: "1.0", eq: "99-100" },
@@ -130,6 +133,10 @@ const App: React.FC = () => {
     useState<boolean>(false);
   const [feedbackSuccess, setFeedbackSuccess] = useState<boolean>(false);
   const [units, setUnits] = useState<Record<string, string>>({});
+
+  // ReCAPTCHA State
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const recaptchaRef = useRef<ReCAPTCHA>(null);
 
   // Forecasting State
   const [remainingUnits, setRemainingUnits] = useState<number>(30);
@@ -252,6 +259,12 @@ const App: React.FC = () => {
     e.preventDefault();
     if (!studentId || !password) return;
 
+    if (!captchaToken) {
+      setErrorMessage("Please complete the security check.");
+      setStatus(AppStatus.ERROR);
+      return;
+    }
+
     setStatus(AppStatus.LOADING);
     setErrorMessage("");
     setElapsedTime(0);
@@ -271,10 +284,14 @@ const App: React.FC = () => {
       const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ studentId, password }),
+        body: JSON.stringify({ studentId, password, captchaToken }),
       });
 
-      if (!response.body) throw new Error("No response body");
+      if (!response.body) {
+        // Handle 403 Forbidden (Captcha Failed) separately if possible, or generic error
+        if (response.status === 403) throw new Error("CAPTCHA check failed.");
+        throw new Error("No response body");
+      }
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder("utf-8");
@@ -317,6 +334,10 @@ const App: React.FC = () => {
           }
         }
       }
+
+      // If we exit the while loop (done is true) but haven't returned via success/error msg
+      // It means the server connection closed cleanly but without sending a result.
+      throw new Error("Server connection closed unexpectedly.");
     } catch (err: any) {
       console.error(err);
       let msg = err.message;
@@ -326,6 +347,8 @@ const App: React.FC = () => {
       setErrorMessage(msg);
       setStatus(AppStatus.ERROR);
       setIsModalOpen(false);
+      recaptchaRef.current?.reset();
+      setCaptchaToken(null);
     }
   };
 
@@ -698,7 +721,7 @@ const App: React.FC = () => {
       {/* Main GlassCard - Mobile Optimized Height */}
       <GlassCard className="w-full max-w-5xl h-auto md:h-[85vh] min-h-0 md:min-h-[600px] flex flex-col md:flex-row overflow-hidden md:overflow-hidden relative z-10 border border-white shadow-xl rounded-[24px] my-4 md:my-0">
         {/* SIDEBAR */}
-        <div className="w-full md:w-[320px] p-6 border-b md:border-b-0 md:border-r border-white/40 flex flex-col bg-white/40 backdrop-blur-xl shrink-0">
+        <div className="w-full md:w-[360px] p-6 border-b md:border-b-0 md:border-r border-white/40 flex flex-col bg-white/40 backdrop-blur-xl shrink-0">
           <div className="mb-8">
             <div className="flex items-center gap-3 mb-2">
               <div className="w-10 h-10 rounded-[12px] bg-blue-600 text-white flex items-center justify-center shadow-lg shadow-blue-500/30">
@@ -730,6 +753,16 @@ const App: React.FC = () => {
               disabled={status === AppStatus.LOADING}
             />
 
+            {/* ReCAPTCHA Widget */}
+            <div className="flex justify-center my-2 transform scale-90 origin-center">
+              <ReCAPTCHA
+                ref={recaptchaRef}
+                sitekey={RECAPTCHA_SITE_KEY}
+                onChange={(token) => setCaptchaToken(token)}
+                theme="light"
+              />
+            </div>
+
             {status === AppStatus.ERROR && (
               <div className="p-3 bg-red-50 border border-red-100 rounded-xl text-red-600 animate-in fade-in slide-in-from-top-2">
                 <div className="flex items-center gap-2">
@@ -741,8 +774,17 @@ const App: React.FC = () => {
 
             <button
               type="submit"
-              disabled={status === AppStatus.LOADING}
-              className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-500/30 active:scale-[0.97]"
+              disabled={status === AppStatus.LOADING || !captchaToken}
+              className={`
+                w-full py-3 bg-blue-600 text-white rounded-xl font-bold text-sm 
+                transition-all flex items-center justify-center gap-2 
+                shadow-lg shadow-blue-500/30 active:scale-[0.97]
+                ${
+                  status === AppStatus.LOADING || !captchaToken
+                    ? "opacity-70 cursor-not-allowed"
+                    : "hover:bg-blue-700"
+                }
+              `}
             >
               {status === AppStatus.LOADING ? (
                 <IoSyncOutline className="animate-spin" size={18} />
@@ -823,6 +865,8 @@ const App: React.FC = () => {
                     setStatus(AppStatus.IDLE);
                     setStudentId("");
                     setPassword("");
+                    recaptchaRef.current?.reset();
+                    setCaptchaToken(null);
                   }}
                   className="p-3 rounded-xl bg-white hover:bg-slate-50 text-slate-600 shadow-md active:scale-[0.97]"
                 >

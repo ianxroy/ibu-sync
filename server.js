@@ -21,6 +21,9 @@ const BROWSER_RESTART_LIMIT = 100; // Restart browser after this many jobs to pr
 const RECAPTCHA_SECRET = "6LfU0EwsAAAAACkiGQvoVU2yvjpedXcTyNWFOjsJ";
 
 // ================= MIDDLEWARE =================
+// TRUST PROXY IS REQUIRED FOR RATE LIMITER BEHIND PROXIES (RAILWAY/DOCKER)
+app.set("trust proxy", 1);
+
 app.use(cors());
 // 1. Body Size Limit (Security)
 app.use(express.json({ limit: "10kb" }));
@@ -34,6 +37,7 @@ const limiter = rateLimit({
   message: { error: "Too many requests. Please try again later." },
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { xForwardedForHeader: false }, // Disable strict validation if trust proxy is set, but extra safety
 });
 app.use("/api/scrape", limiter);
 
@@ -288,8 +292,10 @@ const runScrapeJob = async (req, res) => {
     // Check login success
     const url = page.url();
     if (url.includes("/login")) {
+      // Fix: Trim whitespace from error message to prevent JSON issues and massive logs
       const errorMsg = await page
         .$eval(".alert", (el) => el.textContent)
+        .then((t) => t.trim())
         .catch(() => "Invalid Credentials");
       throw new Error(
         errorMsg.includes("Invalid")
