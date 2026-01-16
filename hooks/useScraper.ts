@@ -31,9 +31,13 @@ export const useScraper = () => {
   const processGrades = (data: Grade[]) => {
     setGrades(data);
     const initialUnits: Record<string, string> = {};
+
+    // Create a normalized map for case-insensitive matching
     const normalizedSubjectMap = Object.keys(SUBJECT_UNITS).reduce(
       (acc, key) => {
-        acc[key.toLowerCase()] = SUBJECT_UNITS[key];
+        // Normalize dict keys: lowercase, single spaces
+        const normKey = key.trim().replace(/\s+/g, " ").toLowerCase();
+        acc[normKey] = SUBJECT_UNITS[key];
         return acc;
       },
       {} as Record<string, string>
@@ -41,13 +45,21 @@ export const useScraper = () => {
 
     data.forEach((g: Grade) => {
       const key = `${g.semester}-${g.subject}`;
-      const subjectName = g.subject.trim();
+
+      // Clean the scraped subject: remove extra spaces, trim
+      const subjectName = g.subject.trim().replace(/\s+/g, " ");
       const subjectNameLower = subjectName.toLowerCase();
 
-      if (SUBJECT_UNITS[subjectName])
+      // 1. Try Exact Match (Case-Sensitive)
+      if (SUBJECT_UNITS[subjectName]) {
         initialUnits[key] = SUBJECT_UNITS[subjectName];
-      else if (normalizedSubjectMap[subjectNameLower])
+      }
+      // 2. Try Normalized Match (Case-Insensitive)
+      else if (normalizedSubjectMap[subjectNameLower]) {
         initialUnits[key] = normalizedSubjectMap[subjectNameLower];
+      }
+      // Note: We do NOT fuzzy match recklessly to avoid incorrect credit assignment.
+      // We only apply credits if the subject matches the dictionary definition.
     });
 
     setUnits(initialUnits);

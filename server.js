@@ -21,7 +21,7 @@ const BROWSER_RESTART_LIMIT = parseInt(
 
 // Scraper specific timeouts
 const PAGE_LOAD_TIMEOUT = parseInt(process.env.PAGE_LOAD_TIMEOUT || "45000");
-const SELECTOR_TIMEOUT = parseInt(process.env.SELECTOR_TIMEOUT || "30000");
+const SELECTOR_TIMEOUT = parseInt(process.env.SELECTOR_TIMEOUT || "15000");
 const TARGET_URL =
   process.env.TARGET_URL || "https://systems.bicol-u.edu.ph/ibu-beta";
 
