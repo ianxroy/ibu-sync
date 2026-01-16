@@ -1,40 +1,86 @@
 import express from "express";
-import { Builder, By, until, Select } from "selenium-webdriver";
-import chrome from "selenium-webdriver/chrome.js";
+import puppeteer from "puppeteer-core";
 import cors from "cors";
 import path from "path";
 import { fileURLToPath } from "url";
+import rateLimit from "express-rate-limit";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-/**
- * DATA PRIVACY POLICY
- * 1. Student credentials (ID and Password) are used only for the active session.
- * 2. This server does not store, log, or share any personal information or grades.
- * 3. All data is processed in-memory and discarded immediately after the response is sent.
- */
-
 const app = express();
-app.use(cors());
-app.use(express.json());
 
-// Serve static files from the build directory
-// Support both root access and sub-path access for consistency
+// ================= CONFIGURATION =================
+const PORT = process.env.PORT || 8080;
+const MAX_CONCURRENT_JOBS = 5; // Max tabs open at once
+const MAX_QUEUE_SIZE = 15; // Max users waiting
+const JOB_TIMEOUT_MS = 60000; // 60s hard timeout per scrape
+const BROWSER_RESTART_LIMIT = 100; // Restart browser after this many jobs to prevent leaks
+
+// ================= MIDDLEWARE =================
+app.use(cors());
+// 1. Body Size Limit (Security)
+app.use(express.json({ limit: "10kb" }));
 app.use(express.static(path.join(__dirname, "dist")));
 app.use("/ibu-sync", express.static(path.join(__dirname, "dist")));
 
-app.get("/api/health", (req, res) => {
-  res
-    .status(200)
-    .json({ status: "ok", platform: "Railway", timestamp: Date.now() });
+// 2. Rate Limiting (Security)
+const limiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 10, // Limit each IP to 10 requests per minute
+  message: { error: "Too many requests. Please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
 });
+app.use("/api/scrape", limiter);
 
-const randomDelay = (min, max) =>
-  new Promise((resolve) =>
-    setTimeout(resolve, Math.floor(Math.random() * (max - min + 1) + min))
-  );
+// ================= STATE MANAGEMENT =================
+let browser = null;
+let jobsCompleted = 0;
 
+// Queue System
+const queue = [];
+let activeJobs = 0;
+
+// ================= BROWSER MANAGEMENT =================
+const initBrowser = async () => {
+  if (browser && browser.isConnected()) return browser;
+
+  console.log("[System] Launching Chrome Instance...");
+  browser = await puppeteer.launch({
+    executablePath: process.env.CHROME_BIN || "/usr/bin/google-chrome",
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage", // Critical for Docker/Render
+      "--disable-accelerated-2d-canvas",
+      "--disable-gpu",
+      "--hide-scrollbars",
+      "--disable-notifications",
+      "--disable-extensions",
+    ],
+    headless: "new",
+    defaultViewport: { width: 1366, height: 768 },
+    ignoreHTTPSErrors: true,
+  });
+
+  return browser;
+};
+
+const restartBrowser = async () => {
+  if (browser) {
+    try {
+      await browser.close();
+    } catch (e) {
+      console.error("[System] Error closing browser:", e);
+    }
+  }
+  browser = null;
+  jobsCompleted = 0;
+  return initBrowser();
+};
+
+// ================= UTILS =================
 const getEquivalent = (grade) => {
   const map = {
     "1.0": "99-100",
@@ -63,252 +109,310 @@ const getEquivalent = (grade) => {
   return map[grade] || "N/A";
 };
 
-// --- ROBUST STEALTH INJECTION SCRIPT ---
-// This runs before the page loads to scrub automation traces
-const STEALTH_INJECTION = `
-  Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-  Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-  Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
-  window.chrome = { runtime: {} };
-  const originalQuery = window.navigator.permissions.query;
-  window.navigator.permissions.query = (parameters) => (
-    parameters.name === 'notifications' ?
-      Promise.resolve({ state: 'granted' }) :
-      originalQuery(parameters)
+// Stealth scripts to bypass basic detection
+const applyStealth = async (page) => {
+  await page.setExtraHTTPHeaders({
+    "Accept-Language": "en-US,en;q=0.9",
+  });
+  await page.setUserAgent(
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
   );
-`;
+  await page.evaluateOnNewDocument(() => {
+    Object.defineProperty(navigator, "webdriver", { get: () => undefined });
+    // @ts-ignore
+    window.chrome = { runtime: {} };
+  });
+};
 
-app.post("/api/scrape", async (req, res) => {
-  const { studentId, password } = req.body;
-  if (!studentId || !password)
-    return res.status(400).json({ error: "Missing credentials" });
+// ================= JOB PROCESSING =================
+const processQueue = async () => {
+  if (activeJobs >= MAX_CONCURRENT_JOBS || queue.length === 0) return;
 
-  console.log(`[Scraper] Starting sync for ${studentId}...`);
+  const job = queue.shift();
+  activeJobs++;
 
-  const options = new chrome.Options();
-
-  // Minimal flags
-  options.addArguments("--headless=new");
-  options.addArguments("--disable-blink-features=AutomationControlled");
-  options.addArguments("--no-sandbox");
-  options.addArguments("--disable-dev-shm-usage");
-  options.addArguments("--disable-gpu");
-  options.addArguments("--window-size=1366,768");
-  options.addArguments("--start-maximized");
-
-  // Real User Agent
-  options.addArguments(
-    "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-  );
-
-  options.excludeSwitches("enable-automation");
-  options.setUserPreferences({
-    credentials_enable_service: false,
-    "profile.password_manager_enabled": false,
-    useAutomationExtension: false,
+  // Notify others in queue of their new position
+  queue.forEach((qJob, index) => {
+    qJob.res.write(
+      JSON.stringify({
+        type: "queue",
+        position: index + 1,
+        message: `Waiting in queue (Pos: ${index + 1})...`,
+      }) + "\n"
+    );
   });
 
-  if (process.env.CHROME_BIN) options.setBinaryPath(process.env.CHROME_BIN);
+  try {
+    await runScrapeJob(job.req, job.res);
+  } catch (error) {
+    console.error(`[Job] Error: ${error.message}`);
+    if (!job.res.writableEnded) {
+      job.res.write(
+        JSON.stringify({
+          type: "error",
+          error: error.message || "Server Error",
+        }) + "\n"
+      );
+      job.res.end();
+    }
+  } finally {
+    activeJobs--;
+    jobsCompleted++;
+    if (jobsCompleted > BROWSER_RESTART_LIMIT) {
+      console.log("[System] Periodic browser restart...");
+      await restartBrowser();
+    }
+    processQueue();
+  }
+};
 
-  let driver;
+const runScrapeJob = async (req, res) => {
+  const { studentId, password } = req.body;
+  let page = null;
+
+  // 3. Client Disconnect Handling
+  req.on("close", async () => {
+    if (page && !page.isClosed()) {
+      console.log(`[Job] Client disconnected: ${studentId}`);
+      try {
+        await page.close();
+      } catch (e) {}
+    }
+  });
 
   try {
-    driver = await new Builder()
-      .forBrowser("chrome")
-      .setChromeOptions(options)
-      .build();
+    const browserInstance = await initBrowser();
+    page = await browserInstance.newPage();
 
-    // --- CRITICAL: CDP STEALTH INJECTION ---
-    try {
-      const cdp = await driver.createCDPConnection("page");
-      await cdp.execute("Page.addScriptToEvaluateOnNewDocument", {
-        source: STEALTH_INJECTION,
-      });
-      await cdp.execute("Network.setUserAgentOverride", {
-        userAgent:
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-        platform: "Windows",
-        acceptLanguage: "en-US,en;q=0.9",
-      });
-    } catch (e) {
-      console.warn("CDP Injection failed, falling back to standard...", e);
+    // 4. Input Validation (Already done via body parser limits, but strict type check)
+    if (typeof studentId !== "string" || typeof password !== "string") {
+      throw new Error("Invalid input format");
     }
 
-    const TARGET_URL = "https://systems.bicol-u.edu.ph/ibu-beta/login";
-
-    // Attempt navigation with Retry Logic
-    let attempts = 0;
-    let success = false;
-
-    while (attempts < 2 && !success) {
-      attempts++;
-      try {
-        console.log(`[Link Log] Navigation Attempt ${attempts}: ${TARGET_URL}`);
-        await driver.get(TARGET_URL);
-        await randomDelay(2000, 3000);
-
-        const url = await driver.getCurrentUrl();
-        if (url.includes("captcha") || url.includes(".well-known")) {
-          console.log("[Scraper] CAPTCHA detected. Waiting for redirect...");
-          await randomDelay(5000, 6000);
-          const checkUrl = await driver.getCurrentUrl();
-          if (
-            checkUrl.includes("captcha") ||
-            checkUrl.includes(".well-known")
-          ) {
-            await driver.navigate().refresh();
-            await randomDelay(3000, 5000);
-          }
-        } else {
-          success = true;
+    // Safety Timeout
+    const timeoutId = setTimeout(async () => {
+      if (page && !page.isClosed()) {
+        console.log(`[Job] Timeout killing: ${studentId}`);
+        await page.close();
+        if (!res.writableEnded) {
+          res.write(
+            JSON.stringify({ type: "error", error: "Operation Timed Out" }) +
+              "\n"
+          );
+          res.end();
         }
-      } catch (e) {
-        console.log(`[Scraper] Nav error: ${e.message}`);
       }
-    }
+    }, JOB_TIMEOUT_MS);
 
-    const currentUrl = await driver.getCurrentUrl();
-    if (currentUrl.includes("captcha") || currentUrl.includes(".well-known")) {
-      throw new Error("CAPTCHA_DETECTED");
-    }
+    await applyStealth(page);
 
-    // --- LOGIN FORM ---
-    const idInput = await driver.wait(
-      until.elementLocated(By.id("student-id-1")),
-      10000
+    // Optimize resource loading
+    await page.setRequestInterception(true);
+    page.on("request", (request) => {
+      if (
+        ["image", "media", "font", "stylesheet"].includes(
+          request.resourceType()
+        )
+      ) {
+        request.abort();
+      } else {
+        request.continue();
+      }
+    });
+
+    res.write(
+      JSON.stringify({
+        type: "status",
+        message: "Connecting to University Portal...",
+      }) + "\n"
     );
 
-    await idInput.sendKeys(studentId);
-    await randomDelay(300, 500);
+    // --- LOGIN ---
+    await page.goto("https://systems.bicol-u.edu.ph/ibu-beta/login", {
+      waitUntil: "domcontentloaded",
+      timeout: 20000,
+    });
 
-    await driver.findElement(By.id("student-password-1")).sendKeys(password);
-    await randomDelay(300, 500);
-
-    const submitBtn = await driver.findElement(By.id("submit"));
-    await driver.executeScript("arguments[0].click();", submitBtn);
-
-    // --- POST LOGIN ---
-    console.log(
-      "[Link Log] Credentials submitted, waiting for Dashboard redirect..."
+    const captchaDetected = await page.evaluate(
+      () =>
+        document.body.innerText.includes("captcha") ||
+        window.location.href.includes(".well-known")
     );
-
-    try {
-      // FIX: Wait for exact Dashboard URL (or trailing slash variant)
-      await driver.wait(async () => {
-        const url = await driver.getCurrentUrl();
-        return (
-          url === "https://systems.bicol-u.edu.ph/ibu-beta/" ||
-          url === "https://systems.bicol-u.edu.ph/ibu-beta"
-        );
-      }, 20000);
-    } catch (e) {
-      const postLoginUrl = await driver.getCurrentUrl();
-      console.log(
-        `[Link Log] Post-login wait timeout. Current URL: ${postLoginUrl}`
+    if (captchaDetected)
+      throw new Error(
+        "University Firewall Blocked Request. Try again in 5 mins."
       );
-      if (postLoginUrl.includes("/login")) {
-        throw new Error("LOGIN_FAILED");
-      }
-      throw e;
+
+    await page.type("#student-id-1", studentId);
+    await page.type("#student-password-1", password);
+
+    res.write(
+      JSON.stringify({ type: "status", message: "Authenticating..." }) + "\n"
+    );
+
+    await Promise.all([
+      page.click("#submit"),
+      page
+        .waitForNavigation({ waitUntil: "domcontentloaded", timeout: 20000 })
+        .catch(() => null),
+    ]);
+
+    // Check login success
+    const url = page.url();
+    if (url.includes("/login")) {
+      const errorMsg = await page
+        .$eval(".alert", (el) => el.textContent)
+        .catch(() => "Invalid Credentials");
+      throw new Error(
+        errorMsg.includes("Invalid")
+          ? "Invalid Student ID or Password"
+          : errorMsg
+      );
     }
 
-    console.log(
-      `[Link Log] Dashboard Reached: ${await driver.getCurrentUrl()}`
+    res.write(
+      JSON.stringify({
+        type: "status",
+        message: "Fetching Academic Records...",
+      }) + "\n"
     );
 
     // --- GRADES ---
-    await driver.get("https://systems.bicol-u.edu.ph/ibu-beta/grades");
+    await page.goto("https://systems.bicol-u.edu.ph/ibu-beta/grades", {
+      waitUntil: "domcontentloaded",
+      timeout: 20000,
+    });
 
-    const dropdown = await driver.wait(
-      until.elementLocated(By.id("semesters")),
-      15000
-    );
-    const select = new Select(dropdown);
-    const optionsList = await select.getOptions();
+    const semesters = await page.evaluate(() => {
+      const select = document.querySelector("#semesters");
+      if (!select) return [];
+      return Array.from(select.options)
+        .filter((opt) => opt.value && !opt.disabled)
+        .map((opt) => ({ value: opt.value, text: opt.textContent.trim() }))
+        .reverse();
+    });
 
-    const validOptions = [];
-    for (let opt of optionsList) {
-      const val = await opt.getAttribute("value");
-      const disabled = await opt.getAttribute("disabled");
-      if (val && !disabled) {
-        validOptions.push({ value: val, text: await opt.getText() });
-      }
-    }
-
-    const chronologicalOrder = validOptions.reverse();
     const finalResults = [];
 
-    for (const opt of chronologicalOrder) {
-      const currentSelect = new Select(
-        await driver.findElement(By.id("semesters"))
+    for (const sem of semesters) {
+      // Send heartbeat to keep connection alive
+      res.write(
+        JSON.stringify({ type: "status", message: `Reading ${sem.text}...` }) +
+          "\n"
       );
-      await currentSelect.selectByValue(opt.value);
 
+      await page.select("#semesters", sem.value);
+
+      // Wait for table update (naive check: wait for at least one row or timeout small)
       try {
-        await driver.wait(async () => {
-          const rows = await driver.findElements(By.css("table tbody tr"));
-          return rows.length > 0;
-        }, 6000);
+        await page.waitForFunction(
+          () => document.querySelectorAll("table tbody tr").length > 0,
+          { timeout: 4000 }
+        );
       } catch (e) {
-        continue;
+        /* Ignore empty sems */
       }
 
-      const rows = await driver.findElements(By.css("table tbody tr"));
-      for (const row of rows) {
-        const cells = await row.findElements(By.tagName("td"));
-        if (cells.length >= 3) {
-          const subject = await cells[1].getText();
-          const grade = await cells[2].getText();
-          if (
-            subject.trim() &&
-            grade.trim() &&
-            !subject.toLowerCase().includes("no subject")
-          ) {
-            finalResults.push({
-              semester: opt.text.trim(),
-              subject: subject.trim(),
-              grade: grade.trim(),
-              equivalent: getEquivalent(grade.trim()),
-            });
-          }
-        }
-      }
-      await randomDelay(100, 300);
+      const grades = await page.evaluate((semName) => {
+        const rows = Array.from(document.querySelectorAll("table tbody tr"));
+        return rows
+          .map((row) => {
+            const cells = row.querySelectorAll("td");
+            if (cells.length < 3) return null;
+            const subject = cells[1].textContent.trim();
+            const grade = cells[2].textContent.trim();
+            if (
+              !subject ||
+              !grade ||
+              subject.toLowerCase().includes("no subject")
+            )
+              return null;
+            return { semester: semName, subject, grade };
+          })
+          .filter(Boolean);
+      }, sem.text);
+
+      finalResults.push(...grades);
     }
 
-    console.log(`[Scraper] Done. Extracted ${finalResults.length} items.`);
-    res.json(finalResults);
+    // Process Equivalents
+    const processed = finalResults.map((g) => ({
+      ...g,
+      equivalent: getEquivalent(g.grade),
+    }));
+
+    clearTimeout(timeoutId);
+
+    // Final Success Response
+    res.write(JSON.stringify({ type: "success", data: processed }) + "\n");
+    res.end();
+
+    await page.close();
   } catch (error) {
-    console.error(`[Scraper] Error: ${error.message}`);
-
-    if (error.message === "LOGIN_FAILED") {
-      return res.status(401).json({
-        error:
-          "Invalid Credentials. Please check your Student ID and Password.",
-      });
-    }
-
-    if (error.message.includes("CAPTCHA_DETECTED")) {
-      return res.status(403).json({
-        error:
-          "Security Check Triggered. The university firewall is blocking cloud access. Please try again in 30 minutes.",
-      });
-    }
-
-    res.status(500).json({
-      error: "Connection timed out or failed. Please check credentials.",
-    });
-  } finally {
-    if (driver) await driver.quit();
+    if (page && !page.isClosed()) await page.close();
+    throw error; // Handled by processQueue wrapper
   }
+};
+
+// ================= ROUTES =================
+
+app.get("/api/health", (req, res) => {
+  res.status(200).json({
+    status: "ok",
+    activeJobs,
+    queueLength: queue.length,
+    freeSlots: MAX_CONCURRENT_JOBS - activeJobs,
+  });
 });
 
-// All other GET requests not handled before will return our React app
+app.post("/api/scrape", (req, res) => {
+  const { studentId, password } = req.body;
+
+  // 4. Input Validation
+  if (
+    !studentId ||
+    !password ||
+    studentId.length > 20 ||
+    password.length > 100
+  ) {
+    return res.status(400).json({ error: "Invalid credentials format" });
+  }
+
+  // 5. Queue Limit Check
+  if (queue.length >= MAX_QUEUE_SIZE) {
+    return res.status(503).json({
+      error:
+        "Server is busy (High Traffic). Please try again in a few minutes.",
+    });
+  }
+
+  // Set Headers for Streaming
+  res.setHeader("Content-Type", "application/x-ndjson");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+
+  // Add to Queue
+  const queuePosition = queue.length + 1;
+  res.write(
+    JSON.stringify({
+      type: "queue",
+      position: queuePosition,
+      message: `Queued (Position: ${queuePosition})...`,
+    }) + "\n"
+  );
+
+  queue.push({ req, res });
+  processQueue();
+});
+
 app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "dist", "index.html"));
 });
 
-const PORT = process.env.PORT || 8080;
+// ================= STARTUP =================
 app.listen(PORT, () => {
-  console.log(`🚀 Scraper Server running on port ${PORT}`);
+  console.log(`🚀 iBU Sync Server running on port ${PORT}`);
+  console.log(
+    `System: ${MAX_CONCURRENT_JOBS} Workers, ${MAX_QUEUE_SIZE} Queue Limit`
+  );
 });

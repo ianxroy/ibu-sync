@@ -119,26 +119,18 @@ const App: React.FC = () => {
   // State for Server Selection
   const [activeServer, setActiveServer] = useState<ServerNode | null>(null);
 
+  // Queue State
+  const [queuePosition, setQueuePosition] = useState<number | null>(null);
+
   useEffect(() => {
-    let interval: NodeJS.Timeout;
+    let interval: ReturnType<typeof setInterval>;
     if (status === AppStatus.LOADING) {
       interval = setInterval(() => setElapsedTime((p) => p + 1), 1000);
     }
     return () => clearInterval(interval);
   }, [status]);
 
-  useEffect(() => {
-    if (status === AppStatus.LOADING) {
-      if (!activeServer && elapsedTime < 3)
-        setStatusMessage("Connecting to Railway...");
-      else if (elapsedTime < 8)
-        setStatusMessage("Launching Browser on Cloud...");
-      else if (elapsedTime < 18) setStatusMessage("Accessing iBU Portal...");
-      else if (elapsedTime < 30)
-        setStatusMessage("Authenticating Credentials...");
-      else setStatusMessage("Syncing records (Smallest to Largest)...");
-    }
-  }, [elapsedTime, status, activeServer]);
+  // Removed old useEffect for statusMessage to avoid overwriting real-time updates
 
   const processGrades = (data: Grade[]) => {
     setGrades(data);
@@ -208,39 +200,69 @@ const App: React.FC = () => {
     setErrorMessage("");
     setElapsedTime(0);
     setActiveServer(null);
+    setQueuePosition(null);
     setIsModalOpen(true);
+    setStatusMessage("Connecting to Railway Server...");
 
     try {
       // 1. Benchmark / Connect
-      setStatusMessage("Connecting to Railway Server...");
       const server = await connectToRailway();
       setActiveServer(server);
 
-      console.log(
-        `Routing traffic via: ${server.name} (${
-          server.latency ? server.latency + "ms" : "Direct"
-        })`
-      );
-
-      // 2. Scrape
+      // 2. Scrape with Streaming NDJSON
       const endpoint = `${server.url}/api/scrape`;
 
-      const res = await fetch(endpoint, {
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ studentId, password }),
       });
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to sync.");
+      if (!response.body) throw new Error("No response body");
 
-      processGrades(data as Grade[]);
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder("utf-8");
+      let buffer = "";
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        buffer += chunk;
+
+        const lines = buffer.split("\n");
+        // Keep the last part if incomplete
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const msg = JSON.parse(line);
+
+            if (msg.type === "queue") {
+              setQueuePosition(msg.position);
+              setStatusMessage(msg.message);
+            } else if (msg.type === "status") {
+              // If we get a status update, we aren't in queue anymore (or position is 0)
+              setQueuePosition(null);
+              setStatusMessage(msg.message);
+            } else if (msg.type === "success") {
+              processGrades(msg.data);
+              return; // Exit loop
+            } else if (msg.type === "error") {
+              throw new Error(msg.error || "An error occurred");
+            }
+          } catch (e) {
+            console.error("Error parsing stream JSON", e);
+          }
+        }
+      }
     } catch (err: any) {
       console.error(err);
       let msg = err.message;
       if (!msg || msg === "Failed to fetch") {
-        msg =
-          "Could not connect to Railway server. It might be waking up (Cold Start). Please try again in 1 minute.";
+        msg = "Connection dropped. Please try again.";
       }
       setErrorMessage(msg);
       setStatus(AppStatus.ERROR);
@@ -537,26 +559,19 @@ const App: React.FC = () => {
       let status = "";
 
       if (requiredGrade < 1.0) {
-        status = "Impossible";
-        prob = 0;
+        (status = "Impossible"), (prob = 0);
       } else if (requiredGrade <= 1.1) {
-        status = "Near Impossible";
-        prob = 5;
+        (status = "Near Impossible"), (prob = 5);
       } else if (requiredGrade <= 1.25) {
-        status = "Very Hard";
-        prob = 25;
+        (status = "Very Hard"), (prob = 25);
       } else if (requiredGrade <= 1.5) {
-        status = "Challenging";
-        prob = 50;
+        (status = "Challenging"), (prob = 50);
       } else if (requiredGrade <= 1.75) {
-        status = "Possible";
-        prob = 75;
+        (status = "Possible"), (prob = 75);
       } else if (requiredGrade <= 2.25) {
-        status = "Likely";
-        prob = 90;
+        (status = "Likely"), (prob = 90);
       } else {
-        status = "Very Likely";
-        prob = 99;
+        (status = "Very Likely"), (prob = 99);
       }
 
       return {
@@ -1325,40 +1340,51 @@ const App: React.FC = () => {
       {/* SYNCING MODAL */}
       {isModalOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/70 backdrop-blur-md p-4">
-          <div className="bg-white rounded-[2rem] p-8 max-w-xs w-full text-center">
+          <div className="bg-white rounded-[2rem] p-8 max-w-xs w-full text-center shadow-2xl">
             <div className="relative w-20 h-20 mx-auto mb-6">
               <div className="absolute inset-0 border-4 border-blue-50 rounded-full"></div>
               <div className="absolute inset-0 border-4 border-blue-600 rounded-full border-t-transparent animate-spin"></div>
               <div className="absolute inset-0 flex items-center justify-center text-blue-600">
-                <IoSyncOutline size={32} />
+                {queuePosition ? (
+                  <span className="font-black text-xl">#{queuePosition}</span>
+                ) : (
+                  <IoSyncOutline size={32} />
+                )}
               </div>
             </div>
+
             <h2 className="text-lg font-black text-slate-800 mb-1">
-              Synchronizing
+              {queuePosition ? "Queued" : "Synchronizing"}
             </h2>
-            <div className="flex items-center justify-center gap-2 mb-8 text-blue-600/80">
+
+            <div className="flex items-center justify-center gap-2 mb-6 text-blue-600/80">
               <IoTimeOutline size={14} />
               <span className="font-mono text-sm font-bold">
                 {formatDuration(elapsedTime)}
               </span>
             </div>
-            <p className="text-xs font-bold text-slate-400 mb-8 tracking-wide">
-              {statusMessage}
-            </p>
+
+            {/* Status Message */}
+            <div className="mb-6 p-3 bg-blue-50 rounded-xl border border-blue-100 min-h-[60px] flex items-center justify-center">
+              <p className="text-xs font-bold text-blue-600 tracking-wide animate-pulse leading-snug">
+                {statusMessage}
+              </p>
+            </div>
+
             <div className="space-y-3">
               <Step
-                label="Analyzing Servers"
-                active={elapsedTime < 3}
-                done={elapsedTime >= 3}
+                label="Queue / Connect"
+                active={elapsedTime < 3 && !queuePosition}
+                done={!!queuePosition || elapsedTime >= 3}
               />
               <Step
                 label="Authenticating"
-                active={elapsedTime >= 3 && elapsedTime < 30}
+                active={!queuePosition && elapsedTime >= 3 && elapsedTime < 30}
                 done={elapsedTime >= 30}
               />
               <Step
                 label="Extracting Grades"
-                active={elapsedTime >= 30}
+                active={!queuePosition && elapsedTime >= 30}
                 done={false}
               />
             </div>
