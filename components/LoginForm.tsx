@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useCallback } from "react";
 import {
   IoPerson,
   IoKey,
@@ -6,7 +6,7 @@ import {
   IoSyncOutline,
   IoCloseCircle,
 } from "react-icons/io5";
-import ReCAPTCHA from "react-google-recaptcha";
+import { useGoogleReCaptcha } from "react-google-recaptcha-v3";
 import { Input } from "./ui/Input";
 import { AppStatus } from "../types";
 
@@ -27,35 +27,32 @@ export const LoginForm: React.FC<LoginFormProps> = ({
 }) => {
   const [localStudentId, setLocalStudentId] = useState("");
   const [localPassword, setLocalPassword] = useState("");
-  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
 
-  // ---------------------------------------------------------------------------
-  // CRITICAL RECAPTCHA CONFIGURATION
-  // ---------------------------------------------------------------------------
-  // The error "Invalid key type" occurs if you use a V3 key with a V2 widget.
-  // This component renders a V2 Checkbox widget.
-  //
-  // 1. Google Standard Test Key (V2 Checkbox): "6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI"
-  //    - This ALWAYS works for development. It shows a warning overlay but functions correctly.
-  //
-  // 2. If using your own key:
-  //    - Go to https://www.google.com/recaptcha/admin
-  //    - Select "v2" -> "I'm not a robot" Checkbox.
-  //    - DO NOT select v3.
-  // ---------------------------------------------------------------------------
+  const { executeRecaptcha } = useGoogleReCaptcha();
 
-  const SITE_KEY = "6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI";
+  const handleSubmit = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!localStudentId || !localPassword) return;
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (localStudentId && localPassword && captchaToken) {
-      onSubmit(localStudentId, localPassword, captchaToken);
-    }
-  };
+      if (!executeRecaptcha) {
+        console.error("ReCAPTCHA not available");
+        // Optionally handle this case, but usually we just wait or fail
+        onSubmit(localStudentId, localPassword, null);
+        return;
+      }
 
-  const onCaptchaChange = (token: string | null) => {
-    setCaptchaToken(token);
-  };
+      try {
+        const token = await executeRecaptcha("login");
+        onSubmit(localStudentId, localPassword, token);
+      } catch (err) {
+        console.error("ReCAPTCHA Execution Failed:", err);
+        // Pass null token to let backend handle the error/rejection
+        onSubmit(localStudentId, localPassword, null);
+      }
+    },
+    [executeRecaptcha, localStudentId, localPassword, onSubmit]
+  );
 
   const isLoading = status === AppStatus.LOADING;
 
@@ -77,15 +74,6 @@ export const LoginForm: React.FC<LoginFormProps> = ({
         disabled={isLoading}
       />
 
-      <div className="flex justify-center py-2">
-        <ReCAPTCHA
-          sitekey={SITE_KEY}
-          onChange={onCaptchaChange}
-          size="compact"
-          theme="light"
-        />
-      </div>
-
       {status === AppStatus.ERROR && errorMessage && (
         <div className="p-3 bg-red-50 border border-red-100 rounded-xl text-red-600 animate-in fade-in slide-in-from-top-2">
           <div className="flex items-center gap-2">
@@ -99,15 +87,13 @@ export const LoginForm: React.FC<LoginFormProps> = ({
 
       <button
         type="submit"
-        disabled={
-          isLoading || !localStudentId || !localPassword || !captchaToken
-        }
+        disabled={isLoading || !localStudentId || !localPassword}
         className={`
           w-full py-3 bg-blue-600 text-white rounded-xl font-bold text-sm 
           transition-all flex items-center justify-center gap-2 
           shadow-lg shadow-blue-500/30 active:scale-[0.97]
           ${
-            isLoading || !localStudentId || !localPassword || !captchaToken
+            isLoading || !localStudentId || !localPassword
               ? "opacity-70 cursor-not-allowed"
               : "hover:bg-blue-700"
           }
@@ -121,6 +107,30 @@ export const LoginForm: React.FC<LoginFormProps> = ({
           </>
         )}
       </button>
+
+      <div className="text-[10px] text-slate-400 text-center opacity-60 px-4 leading-tight">
+        This site is protected by reCAPTCHA and the Google
+        <a
+          href="https://policies.google.com/privacy"
+          target="_blank"
+          rel="noreferrer"
+          className="text-blue-500 hover:underline"
+        >
+          {" "}
+          Privacy Policy
+        </a>{" "}
+        and
+        <a
+          href="https://policies.google.com/terms"
+          target="_blank"
+          rel="noreferrer"
+          className="text-blue-500 hover:underline"
+        >
+          {" "}
+          Terms of Service
+        </a>{" "}
+        apply.
+      </div>
     </form>
   );
 };

@@ -41,6 +41,10 @@
       ::-webkit-scrollbar-thumb:hover {
         background: rgba(255, 255, 255, 0.5);
       }
+      /* Hide Recaptcha Badge - it's annoying on mobile */
+      .grecaptcha-badge {
+        visibility: hidden;
+      }
     </style>
     <script type="importmap">
       {
@@ -49,7 +53,7 @@
           "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
           "react/": "https://esm.sh/react@^19.2.3/",
           "react-icons/": "https://esm.sh/react-icons@^5.5.0/",
-          "react-google-recaptcha": "https://esm.sh/react-google-recaptcha@3.1.0",
+          "react-google-recaptcha-v3": "https://esm.sh/react-google-recaptcha-v3@^1.10.1",
           "@vercel/node": "https://esm.sh/@vercel/node@^5.5.22",
           "@sparticuz/chromium-min": "https://esm.sh/@sparticuz/chromium-min@^143.0.4",
           "puppeteer-core": "https://esm.sh/puppeteer-core@^24.35.0",
@@ -59,7 +63,8 @@
           "cors": "https://esm.sh/cors@^2.8.5",
           "path": "https://esm.sh/path@^0.12.7",
           "url": "https://esm.sh/url@^0.11.4",
-          "express-rate-limit": "https://esm.sh/express-rate-limit@^8.2.1"
+          "express-rate-limit": "https://esm.sh/express-rate-limit@^8.2.1",
+          "@sparticuz/chromium": "https://esm.sh/@sparticuz/chromium@^143.0.4"
         }
       }
     </script>

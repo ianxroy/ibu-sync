@@ -24,8 +24,9 @@ const PAGE_LOAD_TIMEOUT = parseInt(process.env.PAGE_LOAD_TIMEOUT || "45000");
 const SELECTOR_TIMEOUT = parseInt(process.env.SELECTOR_TIMEOUT || "30000");
 const TARGET_URL =
   process.env.TARGET_URL || "https://systems.bicol-u.edu.ph/ibu-beta";
-// FIX: Force Google Test Secret Key
-const RECAPTCHA_SECRET_KEY = "6LeIxAcTAAAAAGG-vFI1TnRWxMZNFuojJ4WifJWe";
+
+// Use Env Var for Secret
+const RECAPTCHA_SECRET_KEY = process.env.RECAPTCHA_SECRET_KEY;
 
 // ================= MIDDLEWARE =================
 // TRUST PROXY IS REQUIRED FOR RATE LIMITER BEHIND PROXIES (RAILWAY/DOCKER)
@@ -148,7 +149,9 @@ const verifyCaptcha = async (token) => {
       }
     );
     const data = await response.json();
-    return data.success;
+
+    // V3: Check score threshold (e.g. 0.5)
+    return data.success && (data.score === undefined || data.score >= 0.5);
   } catch (e) {
     console.error("Captcha verification error:", e);
     return false;
@@ -446,12 +449,12 @@ app.post("/api/scrape", async (req, res) => {
     return res.status(400).json({ error: "Invalid credentials format" });
   }
 
-  // 5. Captcha Verification
+  // 5. Captcha Verification (V3)
   const isHuman = await verifyCaptcha(captchaToken);
   if (!isHuman) {
     return res
       .status(403)
-      .json({ error: "CAPTCHA verification failed. Please try again." });
+      .json({ error: "CAPTCHA verification failed. Low trust score." });
   }
 
   // 6. Queue Limit Check

@@ -5,9 +5,7 @@ import puppeteer from "puppeteer-core";
 // ---------------------------------------------------------------------------
 // CONFIGURATION
 // ---------------------------------------------------------------------------
-// Google V2 Checkbox Test Secret
-// Must match the Site Key used in LoginForm.tsx
-const RECAPTCHA_SECRET_KEY = "6LeIxAcTAAAAAGG-vFI1TnRWxMZNFuojJ4WifJWe";
+const RECAPTCHA_SECRET_KEY = process.env.RECAPTCHA_SECRET_KEY;
 
 const getEquivalent = (grade: string): string => {
   const map: Record<string, string> = {
@@ -53,7 +51,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(400).json({ error: "Missing credentials" });
 
   // ---------------------------------------------------------------------------
-  // CAPTCHA VERIFICATION
+  // CAPTCHA VERIFICATION (V3)
   // ---------------------------------------------------------------------------
   try {
     const verifyRes = await fetch(
@@ -64,10 +62,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     );
     const verifyJson = await verifyRes.json();
 
-    // Note: When using Test Keys, verifyJson.success is always true
-    if (!verifyJson.success) {
-      console.error("Captcha failed:", verifyJson);
-      return res.status(403).json({ error: "CAPTCHA verification failed." });
+    // V3 checks: success AND score threshold (e.g. 0.5)
+    if (
+      !verifyJson.success ||
+      (verifyJson.score !== undefined && verifyJson.score < 0.5)
+    ) {
+      console.error("Captcha failed/low score:", verifyJson);
+      return res.status(403).json({
+        error: "Security check failed (Low Score). Please try again.",
+      });
     }
   } catch (e) {
     console.error("Captcha error:", e);
@@ -81,16 +84,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // BROWSER LAUNCH (VERCEL OPTIMIZED)
     // ---------------------------------------------------------------------------
 
-    // Check if we are running locally (dev) or on Vercel
     const isLocal = process.env.VERCEL !== "1";
 
     let executablePath = "";
-    let args = chromium.args;
 
     if (isLocal) {
-      // Local Development: Try to find local Chrome
-      // Note: You might need to adjust this path based on your OS or install chrome locally
-      // Or strictly use puppeteer (full) for dev, but keeping it simple here.
+      // Local Development Fallback
       const localPaths = [
         "/usr/bin/google-chrome",
         "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
@@ -101,12 +100,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         localPaths.find((p) => require("fs").existsSync(p)) || "";
     } else {
       // Vercel Production
-      // @sparticuz/chromium downloads the binary to /tmp
       executablePath = await chromium.executablePath();
     }
 
     browser = await puppeteer.launch({
-      args: [...args, "--hide-scrollbars", "--disable-web-security"],
+      args: [...chromium.args, "--hide-scrollbars", "--disable-web-security"],
       defaultViewport: { width: 1280, height: 720 },
       executablePath: executablePath,
       headless: true,
@@ -173,7 +171,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           value: opt.value,
           text: opt.textContent?.trim() || "",
         }))
-        .reverse(); // Newest first
+        .reverse();
     });
 
     const allGrades = [];
@@ -187,7 +185,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         el.dispatchEvent(new Event("change", { bubbles: true }));
       }, semester.value);
 
-      // Simple wait for table update
       try {
         await page.waitForNetworkIdle({ idleTime: 500, timeout: 5000 });
       } catch (e) {}
