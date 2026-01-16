@@ -1,5 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from "react";
-import ReCAPTCHA from "react-google-recaptcha";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   IoSchool,
   IoPerson,
@@ -59,8 +58,6 @@ const BACKEND_URLS = getBackendUrls()
   .split(",")
   .map((url: string) => url.trim())
   .filter((url: string) => url.length > 0);
-
-const RECAPTCHA_SITE_KEY = "6LfU0EwsAAAAAMAMBq5MwZtyOBym5p0qzQKFQdh1";
 
 const GRADING_SCALE = [
   { rating: "Outstanding", grade: "1.0", eq: "99-100" },
@@ -133,10 +130,6 @@ const App: React.FC = () => {
     useState<boolean>(false);
   const [feedbackSuccess, setFeedbackSuccess] = useState<boolean>(false);
   const [units, setUnits] = useState<Record<string, string>>({});
-
-  // ReCAPTCHA State
-  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
-  const recaptchaRef = useRef<ReCAPTCHA>(null);
 
   // Forecasting State
   const [remainingUnits, setRemainingUnits] = useState<number>(30);
@@ -259,12 +252,6 @@ const App: React.FC = () => {
     e.preventDefault();
     if (!studentId || !password) return;
 
-    if (!captchaToken) {
-      setErrorMessage("Please complete the security check.");
-      setStatus(AppStatus.ERROR);
-      return;
-    }
-
     setStatus(AppStatus.LOADING);
     setErrorMessage("");
     setElapsedTime(0);
@@ -284,12 +271,12 @@ const App: React.FC = () => {
       const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ studentId, password, captchaToken }),
+        body: JSON.stringify({ studentId, password }),
       });
 
       if (!response.body) {
         // Handle 403 Forbidden (Captcha Failed) separately if possible, or generic error
-        if (response.status === 403) throw new Error("CAPTCHA check failed.");
+        if (response.status === 403) throw new Error("Security check failed.");
         throw new Error("No response body");
       }
 
@@ -347,8 +334,6 @@ const App: React.FC = () => {
       setErrorMessage(msg);
       setStatus(AppStatus.ERROR);
       setIsModalOpen(false);
-      recaptchaRef.current?.reset();
-      setCaptchaToken(null);
     }
   };
 
@@ -753,16 +738,6 @@ const App: React.FC = () => {
               disabled={status === AppStatus.LOADING}
             />
 
-            {/* ReCAPTCHA Widget */}
-            <div className="flex justify-center my-2 transform scale-90 origin-center">
-              <ReCAPTCHA
-                ref={recaptchaRef}
-                sitekey={RECAPTCHA_SITE_KEY}
-                onChange={(token) => setCaptchaToken(token)}
-                theme="light"
-              />
-            </div>
-
             {status === AppStatus.ERROR && (
               <div className="p-3 bg-red-50 border border-red-100 rounded-xl text-red-600 animate-in fade-in slide-in-from-top-2">
                 <div className="flex items-center gap-2">
@@ -774,13 +749,13 @@ const App: React.FC = () => {
 
             <button
               type="submit"
-              disabled={status === AppStatus.LOADING || !captchaToken}
+              disabled={status === AppStatus.LOADING}
               className={`
                 w-full py-3 bg-blue-600 text-white rounded-xl font-bold text-sm 
                 transition-all flex items-center justify-center gap-2 
                 shadow-lg shadow-blue-500/30 active:scale-[0.97]
                 ${
-                  status === AppStatus.LOADING || !captchaToken
+                  status === AppStatus.LOADING
                     ? "opacity-70 cursor-not-allowed"
                     : "hover:bg-blue-700"
                 }
@@ -865,8 +840,6 @@ const App: React.FC = () => {
                     setStatus(AppStatus.IDLE);
                     setStudentId("");
                     setPassword("");
-                    recaptchaRef.current?.reset();
-                    setCaptchaToken(null);
                   }}
                   className="p-3 rounded-xl bg-white hover:bg-slate-50 text-slate-600 shadow-md active:scale-[0.97]"
                 >
