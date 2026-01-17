@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   IoDownloadOutline,
   IoRefresh,
@@ -17,6 +17,7 @@ import {
 } from "react-icons/io5";
 import { AppStatus, Grade } from "../types";
 import { useAcademicStats } from "../hooks/useAcademicStats";
+import { WrapUpModal } from "./WrapUpModal";
 
 interface DashboardProps {
   status: AppStatus;
@@ -49,6 +50,31 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [expandedSemesters, setExpandedSemesters] = useState<
     Record<string, boolean>
   >({});
+  const [showWrapUp, setShowWrapUp] = useState(false);
+
+  // Track if we've shown the wrap-up for this session/data load
+  const hasShownWrapUpRef = useRef(false);
+
+  // Trigger Wrap-Up Modal automatically on success
+  useEffect(() => {
+    if (
+      status === AppStatus.SUCCESS &&
+      grades.length > 0 &&
+      !hasShownWrapUpRef.current
+    ) {
+      // Small delay to allow enter animations to finish
+      const timer = setTimeout(() => {
+        setShowWrapUp(true);
+        hasShownWrapUpRef.current = true;
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+    // Reset the ref if status goes back to IDLE (user logged out/reset)
+    if (status === AppStatus.IDLE) {
+      hasShownWrapUpRef.current = false;
+      setShowWrapUp(false);
+    }
+  }, [status, grades.length]);
 
   const handleUnitChange = (semester: string, subject: string, val: string) => {
     onUnitsChange({ ...units, [`${semester}-${subject}`]: val });
@@ -77,7 +103,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     link.setAttribute("href", url);
     link.setAttribute(
       "download",
-      `ibu_grade_export_${studentId || "history"}.csv`
+      `ibu_grade_export_${studentId || "history"}.csv`,
     );
     link.style.visibility = "hidden";
     document.body.appendChild(link);
@@ -87,12 +113,28 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   return (
     <div className="flex-1 p-6 md:p-8 bg-white/20 md:overflow-y-auto custom-scrollbar">
+      {/* Wrap Up Modal Trigger */}
+      {showWrapUp && (
+        <WrapUpModal
+          grades={grades}
+          units={units}
+          onClose={() => setShowWrapUp(false)}
+        />
+      )}
+
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-xl font-black text-slate-800 tracking-tight">
           Academic History
         </h2>
         {status === AppStatus.SUCCESS && (
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowWrapUp(true)} // Allow manual re-opening
+              className="p-3 rounded-xl bg-gradient-to-br from-indigo-600 to-purple-600 hover:brightness-110 text-white shadow-md active:scale-[0.97] transition-all"
+              title="View Wrap-Up"
+            >
+              <IoRibbon size={18} />
+            </button>
             <button
               onClick={handleExport}
               className="p-3 rounded-xl bg-white hover:bg-slate-50 text-blue-600 shadow-md active:scale-[0.97] transition-all"
@@ -230,15 +272,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   </div>
                   <div className="flex flex-col items-end gap-1">
                     <div
-                      className={`px-2 py-1 rounded-lg text-[9px] font-black uppercase tracking-wide ${
-                        h.status.includes("Impossible") ||
-                        h.status.includes("Disqualified")
-                          ? "bg-red-100 text-red-600"
-                          : h.status.includes("Likely") ||
-                            h.status.includes("Possible")
-                          ? "bg-emerald-100 text-emerald-600"
-                          : "bg-orange-100 text-orange-600"
-                      }`}
+                      className={`px-2 py-1 rounded-lg text-[9px] font-black uppercase tracking-wide ${h.status.includes("Impossible") || h.status.includes("Disqualified") ? "bg-red-100 text-red-600" : h.status.includes("Likely") || h.status.includes("Possible") ? "bg-emerald-100 text-emerald-600" : "bg-orange-100 text-orange-600"}`}
                     >
                       {h.status}
                     </div>
@@ -246,13 +280,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       <div className="flex items-center gap-1">
                         <div className="w-16 h-1.5 bg-black/5 rounded-full overflow-hidden">
                           <div
-                            className={`h-full rounded-full transition-all duration-1000 ${
-                              h.probability > 75
-                                ? "bg-emerald-500"
-                                : h.probability > 40
-                                ? "bg-orange-400"
-                                : "bg-red-400"
-                            }`}
+                            className={`h-full rounded-full transition-all duration-1000 ${h.probability > 75 ? "bg-emerald-500" : h.probability > 40 ? "bg-orange-400" : "bg-red-400"}`}
                             style={{ width: `${h.probability}%` }}
                           ></div>
                         </div>
@@ -415,7 +443,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                             handleUnitChange(
                               g.semester,
                               g.subject,
-                              e.target.value
+                              e.target.value,
                             )
                           }
                         />
