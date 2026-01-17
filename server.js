@@ -12,11 +12,11 @@ const app = express();
 
 // ================= CONFIGURATION =================
 const PORT = process.env.PORT || 8080;
-const MAX_CONCURRENT_JOBS = parseInt(process.env.MAX_CONCURRENT_JOBS || "2");
+const MAX_CONCURRENT_JOBS = parseInt(process.env.MAX_CONCURRENT_JOBS || "3");
 const MAX_QUEUE_SIZE = parseInt(process.env.MAX_QUEUE_SIZE || "20");
 const JOB_TIMEOUT_MS = parseInt(process.env.JOB_TIMEOUT_MS || "60000");
 const BROWSER_RESTART_LIMIT = parseInt(
-  process.env.BROWSER_RESTART_LIMIT || "100",
+  process.env.BROWSER_RESTART_LIMIT || "50",
 );
 
 // Scraper specific timeouts
