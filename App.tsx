@@ -18,7 +18,7 @@ import { Sidebar } from "./components/Sidebar";
 import { Dashboard } from "./components/Dashboard";
 import { StatusModal } from "./components/StatusModal";
 import { WhatsNewModal } from "./components/WhatsNewModal";
-import { WrapUpModal } from "./components/WrapUpModal"; // Added Import
+import { WrapUpModal } from "./components/WrapUpModal";
 import { useScraper } from "./hooks/useScraper";
 import { GRADING_SCALE } from "./utils/constants";
 import { APP_VERSIONS, LATEST_VERSION } from "./utils/versions";
@@ -30,14 +30,14 @@ const App: React.FC = () => {
   const [showFeedback, setShowFeedback] = useState<boolean>(false);
   const [showVersions, setShowVersions] = useState<boolean>(false);
   const [showWhatsNew, setShowWhatsNew] = useState<boolean>(false);
-  const [showWrapUp, setShowWrapUp] = useState<boolean>(false); // Added State
+  const [showWrapUp, setShowWrapUp] = useState<boolean>(false);
   const [feedbackMsg, setFeedbackMsg] = useState<string>("");
   const [isSubmittingFeedback, setIsSubmittingFeedback] =
     useState<boolean>(false);
   const [feedbackSuccess, setFeedbackSuccess] = useState<boolean>(false);
   const [formKey, setFormKey] = useState<number>(0);
 
-  // Logic for Auto-Popup (What's New)
+  // Auto-Popup logic (What's New)
   useEffect(() => {
     const checkWhatsNew = () => {
       const STORAGE_KEY = `ibu_seen_version_${LATEST_VERSION.version}`;
@@ -66,7 +66,6 @@ const App: React.FC = () => {
     a.version.localeCompare(b.version, undefined, { numeric: true }),
   );
 
-  // Custom Hooks
   const {
     status,
     grades,
@@ -154,7 +153,7 @@ const App: React.FC = () => {
           studentId={studentId}
           onUnitsChange={setUnits}
           onReset={handleReset}
-          onTriggerWrapUp={() => setShowWrapUp(true)} // Added Callback
+          onTriggerWrapUp={() => setShowWrapUp(true)}
         />
 
         {/* --- MODALS --- */}
@@ -287,7 +286,6 @@ const App: React.FC = () => {
                   <IoChevronDown size={20} />
                 </button>
               </div>
-
               <div className="space-y-8">
                 {sortedVersions.map((v, i) => (
                   <div
