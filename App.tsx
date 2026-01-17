@@ -12,6 +12,7 @@ import {
   IoSyncOutline,
   IoGitBranchOutline,
   IoCheckmarkDone,
+  IoFileTrayFullOutline,
 } from "react-icons/io5";
 import { GlassCard } from "./components/ui/GlassCard";
 import { Sidebar } from "./components/Sidebar";
@@ -37,13 +38,11 @@ const App: React.FC = () => {
   const [feedbackSuccess, setFeedbackSuccess] = useState<boolean>(false);
   const [formKey, setFormKey] = useState<number>(0);
 
-  // Auto-Popup logic (What's New)
+  // Logic for Auto-Popup (What's New)
   useEffect(() => {
     const checkWhatsNew = () => {
       const STORAGE_KEY = `ibu_seen_version_${LATEST_VERSION.version}`;
       const hasSeen = localStorage.getItem(STORAGE_KEY);
-
-      // Cutoff: January 20, 2026, 23:59:59 (Philippine Time UTC+8)
       const cutoffDate = new Date("2026-01-20T23:59:59+08:00");
       const now = new Date();
 
@@ -51,7 +50,6 @@ const App: React.FC = () => {
         setTimeout(() => setShowWhatsNew(true), 1000);
       }
     };
-
     checkWhatsNew();
   }, []);
 
@@ -218,52 +216,72 @@ const App: React.FC = () => {
                   <IoChevronDown size={20} />
                 </button>
               </div>
+
               <div className="space-y-6 text-slate-600">
-                <div className="p-4 bg-blue-50 rounded-2xl border border-blue-100">
-                  <div className="flex items-start gap-3">
-                    <div className="p-2 bg-blue-600 text-white rounded-lg shrink-0">
-                      <IoLockClosedOutline size={20} />
+                <div className="p-6 bg-blue-50 rounded-3xl border border-blue-100">
+                  <div className="flex items-start gap-4">
+                    <div className="p-3 bg-blue-600 text-white rounded-2xl shrink-0 shadow-lg shadow-blue-200">
+                      <IoLockClosedOutline size={24} />
                     </div>
                     <div>
-                      <h3 className="font-bold text-blue-900 text-sm mb-1">
+                      <h3 className="font-bold text-blue-900 text-base mb-1">
                         Privacy Commitment
                       </h3>
-                      <p className="text-xs text-blue-700/80 leading-relaxed">
-                        iBU Sync does not save your password or grades in a
-                        permanent database.
+                      <p className="text-sm text-blue-700/80 leading-relaxed">
+                        iBU Sync is designed with a "Privacy-First"
+                        architecture. We prioritize the security of your
+                        academic data through ephemeral processing.
                       </p>
                     </div>
                   </div>
                 </div>
-                <div className="space-y-4">
-                  <div className="flex gap-4">
-                    <IoEyeOffOutline
-                      size={24}
-                      className="text-slate-400 mt-1"
-                    />
-                    <div>
-                      <h4 className="font-bold text-slate-800 text-sm">
-                        Local Processing
-                      </h4>
-                      <p className="text-xs mt-1">
-                        Your data is stored temporarily in your browser session
-                        and cleared on exit.
-                      </p>
-                    </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="p-5 bg-slate-50 rounded-2xl border border-slate-100">
+                    <IoEyeOffOutline size={24} className="text-blue-500 mb-3" />
+                    <h4 className="font-bold text-slate-800 text-sm mb-1">
+                      Zero Persistence
+                    </h4>
+                    <p className="text-xs text-slate-500 leading-relaxed">
+                      Your password and grades are never saved in any permanent
+                      database or cloud storage.
+                    </p>
                   </div>
-                  <div className="flex gap-4">
-                    <IoServerOutline
+                  <div className="p-5 bg-slate-50 rounded-2xl border border-slate-100">
+                    <IoServerOutline size={24} className="text-blue-500 mb-3" />
+                    <h4 className="font-bold text-slate-800 text-sm mb-1">
+                      Encrypted Tunnel
+                    </h4>
+                    <p className="text-xs text-slate-500 leading-relaxed">
+                      Data transmission occurs via SSL/TLS encrypted tunnels
+                      that expire immediately after your session.
+                    </p>
+                  </div>
+                  <div className="p-5 bg-slate-50 rounded-2xl border border-slate-100">
+                    <IoFileTrayFullOutline
                       size={24}
-                      className="text-slate-400 mt-1"
+                      className="text-blue-500 mb-3"
                     />
-                    <div>
-                      <h4 className="font-bold text-slate-800 text-sm">
-                        Secure Connection
-                      </h4>
-                      <p className="text-xs mt-1">
-                        All sync operations use encrypted ephemeral sessions.
-                      </p>
-                    </div>
+                    <h4 className="font-bold text-slate-800 text-sm mb-1">
+                      Local Session
+                    </h4>
+                    <p className="text-xs text-slate-500 leading-relaxed">
+                      Calculated GPA and unit data exist only in your browser's
+                      memory and are wiped upon logout.
+                    </p>
+                  </div>
+                  <div className="p-5 bg-slate-50 rounded-2xl border border-slate-100">
+                    <IoCheckmarkCircle
+                      size={24}
+                      className="text-blue-500 mb-3"
+                    />
+                    <h4 className="font-bold text-slate-800 text-sm mb-1">
+                      User Control
+                    </h4>
+                    <p className="text-xs text-slate-500 leading-relaxed">
+                      You have full control over your data. Clicking "Reset"
+                      immediately clears all active state variables.
+                    </p>
                   </div>
                 </div>
               </div>
