@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState } from "react";
 import {
   IoDownloadOutline,
   IoRefresh,
@@ -14,10 +14,10 @@ import {
   IoChevronDown,
   IoChevronForward,
   IoSyncOutline,
+  IoSparklesOutline,
 } from "react-icons/io5";
 import { AppStatus, Grade } from "../types";
 import { useAcademicStats } from "../hooks/useAcademicStats";
-import { WrapUpModal } from "./WrapUpModal";
 
 interface DashboardProps {
   status: AppStatus;
@@ -26,15 +26,7 @@ interface DashboardProps {
   studentId: string;
   onUnitsChange: (newUnits: Record<string, string>) => void;
   onReset: () => void;
-}
-interface DashboardProps {
-  status: AppStatus;
-  grades: Grade[];
-  units: Record<string, string>;
-  studentId: string;
-  onUnitsChange: (newUnits: Record<string, string>) => void;
-  onReset: () => void;
-  onTriggerWrapUp: () => void; // <--- Add this line
+  onTriggerWrapUp: () => void;
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({
@@ -44,6 +36,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   studentId,
   onUnitsChange,
   onReset,
+  onTriggerWrapUp,
 }) => {
   const {
     overallStats,
@@ -51,7 +44,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
     honorForecasts,
     remainingUnits,
     setRemainingUnits,
-    groupedGrades,
     sortedSemesterEntries,
     calculateGWA,
   } = useAcademicStats(grades, units);
@@ -59,27 +51,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [expandedSemesters, setExpandedSemesters] = useState<
     Record<string, boolean>
   >({});
-  const [showWrapUp, setShowWrapUp] = useState(false);
-
-  const hasShownWrapUpRef = useRef(false);
-
-  useEffect(() => {
-    if (
-      status === AppStatus.SUCCESS &&
-      grades.length > 0 &&
-      !hasShownWrapUpRef.current
-    ) {
-      const timer = setTimeout(() => {
-        setShowWrapUp(true);
-        hasShownWrapUpRef.current = true;
-      }, 1500);
-      return () => clearTimeout(timer);
-    }
-    if (status === AppStatus.IDLE) {
-      hasShownWrapUpRef.current = false;
-      setShowWrapUp(false);
-    }
-  }, [status, grades.length]);
 
   const handleUnitChange = (semester: string, subject: string, val: string) => {
     onUnitsChange({ ...units, [`${semester}-${subject}`]: val });
@@ -118,14 +89,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   return (
     <div className="flex-1 p-6 md:p-8 bg-white/20 md:overflow-y-auto custom-scrollbar">
-      {showWrapUp && (
-        <WrapUpModal
-          grades={grades}
-          units={units}
-          onClose={() => setShowWrapUp(false)}
-        />
-      )}
-
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-xl font-black text-slate-800 tracking-tight">
           Academic History
@@ -133,11 +96,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
         {status === AppStatus.SUCCESS && (
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setShowWrapUp(true)}
-              className="p-3 rounded-xl bg-gradient-to-br from-indigo-600 to-purple-600 hover:brightness-110 text-white shadow-md active:scale-[0.97] transition-all"
+              onClick={onTriggerWrapUp}
+              className="px-4 py-2.5 rounded-xl bg-gradient-to-br from-indigo-600 to-purple-600 hover:brightness-110 text-white shadow-lg active:scale-[0.97] transition-all flex items-center gap-2 font-black text-[10px] uppercase tracking-wider"
               title="View Wrap-Up"
             >
-              <IoRibbon size={18} />
+              <IoSparklesOutline size={14} />
+              Wrap Up
             </button>
             <button
               onClick={handleExport}
@@ -148,7 +112,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </button>
             <button
               onClick={onReset}
-              className="p-3 rounded-xl bg-white hover:bg-slate-50 text-slate-600 shadow-md active:scale-[0.97]"
+              className="p-3 rounded-xl bg-white hover:bg-slate-50 text-rose-500 shadow-md active:scale-[0.97]"
+              title="Reset All Data"
             >
               <IoRefresh size={18} />
             </button>
@@ -163,12 +128,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </div>
           <div>
             <h4 className="text-xs font-black text-blue-900 uppercase tracking-wide mb-1">
-              Calculation Required
+              Action Required
             </h4>
             <p className="text-xs text-blue-800/80 font-medium leading-relaxed">
-              Some subjects do not have units assigned automatically. Please{" "}
-              <strong>enter the units</strong> manually for each subject in the
-              list below to generate your GWA.
+              Manually <strong>enter the units</strong> for each subject in the
+              list below to generate your GWA. All data is processed locally.
             </p>
           </div>
         </div>
@@ -176,6 +140,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
       {status === AppStatus.SUCCESS && (
         <div className="animate-in slide-in-from-bottom-4 duration-500 mb-6 space-y-6">
+          {/* Main Stat Cards */}
           <div className="grid grid-cols-3 gap-3">
             <div className="relative overflow-hidden bg-gradient-to-br from-blue-600 to-indigo-600 rounded-2xl p-4 text-white shadow-lg shadow-blue-500/20">
               <div className="absolute top-[-50%] right-[-10%] w-20 h-20 bg-white/10 rounded-full blur-xl"></div>
@@ -218,6 +183,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </div>
           </div>
 
+          {/* Latin Honor Forecast Section */}
           <div className="bg-white/50 backdrop-blur-md border border-white/60 rounded-[24px] p-6 shadow-sm">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
@@ -235,7 +201,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
               </div>
               <div className="flex items-center gap-3 bg-white px-3 py-2 rounded-xl border border-slate-100 shadow-sm">
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">
-                  Remaining Units
+                  Units Remaining
                 </span>
                 <div className="flex items-center gap-2">
                   <IoOptions className="text-slate-300" />
@@ -259,7 +225,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
               {honorForecasts.map((h, i) => (
                 <div
                   key={i}
-                  className={`flex items-center justify-between p-3 rounded-xl border ${h.bg}`}
+                  className={`flex items-center justify-between p-3 rounded-xl border transition-colors ${h.bg}`}
                 >
                   <div className="flex items-center gap-3">
                     <div className={`text-xl ${h.color}`}>
@@ -276,7 +242,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   </div>
                   <div className="flex flex-col items-end gap-1">
                     <div
-                      className={`px-2 py-1 rounded-lg text-[9px] font-black uppercase tracking-wide ${h.status.includes("Impossible") || h.status.includes("Disqualified") ? "bg-red-100 text-red-600" : h.status.includes("Likely") || h.status.includes("Possible") ? "bg-emerald-100 text-emerald-600" : "bg-orange-100 text-orange-600"}`}
+                      className={`px-2 py-1 rounded-lg text-[9px] font-black uppercase tracking-wide ${
+                        h.status.includes("Impossible") ||
+                        h.status.includes("Disqualified")
+                          ? "bg-red-100 text-red-600"
+                          : h.status.includes("Likely") ||
+                              h.status.includes("Possible")
+                            ? "bg-emerald-100 text-emerald-600"
+                            : "bg-orange-100 text-orange-600"
+                      }`}
                     >
                       {h.status}
                     </div>
@@ -284,7 +258,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       <div className="flex items-center gap-1">
                         <div className="w-16 h-1.5 bg-black/5 rounded-full overflow-hidden">
                           <div
-                            className={`h-full rounded-full transition-all duration-1000 ${h.probability > 75 ? "bg-emerald-500" : h.probability > 40 ? "bg-orange-400" : "bg-red-400"}`}
+                            className={`h-full rounded-full transition-all duration-1000 ${
+                              h.probability > 75
+                                ? "bg-emerald-500"
+                                : h.probability > 40
+                                  ? "bg-orange-400"
+                                  : "bg-red-400"
+                            }`}
                             style={{ width: `${h.probability}%` }}
                           ></div>
                         </div>
@@ -299,12 +279,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </div>
           </div>
 
+          {/* Award Streak Section */}
           {distinctions.length > 0 && (
             <div className="animate-in slide-in-from-bottom-6 duration-700 delay-100">
               <div className="flex items-center gap-2 mb-3 px-1">
                 <IoRibbon size={18} className="text-yellow-500" />
                 <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest">
-                  Consecutive Awards
+                  Academic Award Streak
                 </h3>
               </div>
               <div className="flex gap-4 overflow-x-auto pb-4 -mx-4 px-4 snap-x custom-scrollbar">
@@ -343,6 +324,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </div>
       )}
 
+      {/* Semester Breakdown Table */}
       <div className="space-y-4">
         {sortedSemesterEntries.map(([semester, items]) => {
           const semGWAStr = calculateGWA(items, units, true);
@@ -352,7 +334,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
           let semDistinction = null;
           if (semGWAStr !== "---") {
             const gwa = parseFloat(semGWAStr);
-            // BU Qualification: No grade below 3.0 (Disqualified if grade > 3.0)
             const hasLowGrade = items.some((g) => {
               const v = parseFloat(g.grade);
               return !isNaN(v) && v > 3.0;
@@ -491,7 +472,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
               Ready to Sync
             </p>
             <p className="text-xs font-medium opacity-50 mt-1 max-w-[200px] text-center">
-              Enter your credentials to load history and calculate GWA.
+              Enter your credentials in the sidebar to load your history.
             </p>
           </div>
         )}

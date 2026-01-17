@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   IoBook,
   IoChevronDown,
@@ -23,6 +23,7 @@ import { WrapUpModal } from "./components/WrapUpModal";
 import { useScraper } from "./hooks/useScraper";
 import { GRADING_SCALE } from "./utils/constants";
 import { APP_VERSIONS, LATEST_VERSION } from "./utils/versions";
+import { AppStatus } from "./types";
 
 const App: React.FC = () => {
   const [studentId, setStudentId] = useState<string>("");
@@ -38,31 +39,7 @@ const App: React.FC = () => {
   const [feedbackSuccess, setFeedbackSuccess] = useState<boolean>(false);
   const [formKey, setFormKey] = useState<number>(0);
 
-  // Logic for Auto-Popup (What's New)
-  useEffect(() => {
-    const checkWhatsNew = () => {
-      const STORAGE_KEY = `ibu_seen_version_${LATEST_VERSION.version}`;
-      const hasSeen = localStorage.getItem(STORAGE_KEY);
-      const cutoffDate = new Date("2026-01-20T23:59:59+08:00");
-      const now = new Date();
-
-      if (!hasSeen && now < cutoffDate) {
-        setTimeout(() => setShowWhatsNew(true), 1000);
-      }
-    };
-    checkWhatsNew();
-  }, []);
-
-  const handleCloseWhatsNew = () => {
-    setShowWhatsNew(false);
-    const STORAGE_KEY = `ibu_seen_version_${LATEST_VERSION.version}`;
-    localStorage.setItem(STORAGE_KEY, "true");
-  };
-
-  // Requirement: Sort versions Smallest to Largest (e.g., 1.0.0 -> 1.1.0)
-  const sortedVersions = [...APP_VERSIONS].sort((a, b) =>
-    a.version.localeCompare(b.version, undefined, { numeric: true }),
-  );
+  const hasShownWrapUpRef = useRef(false);
 
   const {
     status,
@@ -79,6 +56,51 @@ const App: React.FC = () => {
     reset,
     activeServerUrl,
   } = useScraper();
+
+  // Logic for Auto-Popup (What's New)
+  useEffect(() => {
+    const checkWhatsNew = () => {
+      const STORAGE_KEY = `ibu_seen_version_${LATEST_VERSION.version}`;
+      const hasSeen = localStorage.getItem(STORAGE_KEY);
+      const cutoffDate = new Date("2026-01-20T23:59:59+08:00");
+      const now = new Date();
+
+      if (!hasSeen && now < cutoffDate) {
+        setTimeout(() => setShowWhatsNew(true), 1000);
+      }
+    };
+    checkWhatsNew();
+  }, []);
+
+  // Logic for Auto-Popup (Wrap Up) - Moved from Dashboard
+  useEffect(() => {
+    if (
+      status === AppStatus.SUCCESS &&
+      grades.length > 0 &&
+      !hasShownWrapUpRef.current
+    ) {
+      const timer = setTimeout(() => {
+        setShowWrapUp(true);
+        hasShownWrapUpRef.current = true;
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+    if (status === AppStatus.IDLE) {
+      hasShownWrapUpRef.current = false;
+      setShowWrapUp(false);
+    }
+  }, [status, grades.length]);
+
+  const handleCloseWhatsNew = () => {
+    setShowWhatsNew(false);
+    const STORAGE_KEY = `ibu_seen_version_${LATEST_VERSION.version}`;
+    localStorage.setItem(STORAGE_KEY, "true");
+  };
+
+  // Requirement: Sort versions Smallest to Largest (e.g., 1.0.0 -> 1.1.0)
+  const sortedVersions = [...APP_VERSIONS].sort((a, b) =>
+    a.version.localeCompare(b.version, undefined, { numeric: true }),
+  );
 
   const handleLogin = (
     id: string,
