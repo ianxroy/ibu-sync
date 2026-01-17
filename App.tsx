@@ -18,6 +18,7 @@ import { Sidebar } from "./components/Sidebar";
 import { Dashboard } from "./components/Dashboard";
 import { StatusModal } from "./components/StatusModal";
 import { WhatsNewModal } from "./components/WhatsNewModal";
+import { WrapUpModal } from "./components/WrapUpModal"; // Added Import
 import { useScraper } from "./hooks/useScraper";
 import { GRADING_SCALE } from "./utils/constants";
 import { APP_VERSIONS, LATEST_VERSION } from "./utils/versions";
@@ -29,6 +30,7 @@ const App: React.FC = () => {
   const [showFeedback, setShowFeedback] = useState<boolean>(false);
   const [showVersions, setShowVersions] = useState<boolean>(false);
   const [showWhatsNew, setShowWhatsNew] = useState<boolean>(false);
+  const [showWrapUp, setShowWrapUp] = useState<boolean>(false); // Added State
   const [feedbackMsg, setFeedbackMsg] = useState<string>("");
   const [isSubmittingFeedback, setIsSubmittingFeedback] =
     useState<boolean>(false);
@@ -41,12 +43,11 @@ const App: React.FC = () => {
       const STORAGE_KEY = `ibu_seen_version_${LATEST_VERSION.version}`;
       const hasSeen = localStorage.getItem(STORAGE_KEY);
 
-      // Cutoff: January 20, 2025, 23:59:59 (Philippine Time UTC+8)
+      // Cutoff: January 20, 2026, 23:59:59 (Philippine Time UTC+8)
       const cutoffDate = new Date("2026-01-20T23:59:59+08:00");
       const now = new Date();
 
       if (!hasSeen && now < cutoffDate) {
-        // Simple delay to not overwhelm user immediately on load
         setTimeout(() => setShowWhatsNew(true), 1000);
       }
     };
@@ -59,6 +60,11 @@ const App: React.FC = () => {
     const STORAGE_KEY = `ibu_seen_version_${LATEST_VERSION.version}`;
     localStorage.setItem(STORAGE_KEY, "true");
   };
+
+  // Requirement: Sort versions Smallest to Largest (e.g., 1.0.0 -> 1.1.0)
+  const sortedVersions = [...APP_VERSIONS].sort((a, b) =>
+    a.version.localeCompare(b.version, undefined, { numeric: true }),
+  );
 
   // Custom Hooks
   const {
@@ -121,6 +127,7 @@ const App: React.FC = () => {
     reset();
     setStudentId("");
     setFormKey((p) => p + 1);
+    setShowWrapUp(false);
   };
 
   return (
@@ -147,6 +154,7 @@ const App: React.FC = () => {
           studentId={studentId}
           onUnitsChange={setUnits}
           onReset={handleReset}
+          onTriggerWrapUp={() => setShowWrapUp(true)} // Added Callback
         />
 
         {/* --- MODALS --- */}
@@ -219,11 +227,11 @@ const App: React.FC = () => {
                     </div>
                     <div>
                       <h3 className="font-bold text-blue-900 text-sm mb-1">
-                        We respect your privacy
+                        Privacy Commitment
                       </h3>
                       <p className="text-xs text-blue-700/80 leading-relaxed">
-                        Your data is handled with maximum security using
-                        ephemeral sessions.
+                        iBU Sync does not save your password or grades in a
+                        permanent database.
                       </p>
                     </div>
                   </div>
@@ -236,10 +244,11 @@ const App: React.FC = () => {
                     />
                     <div>
                       <h4 className="font-bold text-slate-800 text-sm">
-                        No Password Storage
+                        Local Processing
                       </h4>
                       <p className="text-xs mt-1">
-                        Passwords are never saved in any database.
+                        Your data is stored temporarily in your browser session
+                        and cleared on exit.
                       </p>
                     </div>
                   </div>
@@ -250,11 +259,10 @@ const App: React.FC = () => {
                     />
                     <div>
                       <h4 className="font-bold text-slate-800 text-sm">
-                        Data Handling
+                        Secure Connection
                       </h4>
                       <p className="text-xs mt-1">
-                        Records exist only for the duration of your browser
-                        session.
+                        All sync operations use encrypted ephemeral sessions.
                       </p>
                     </div>
                   </div>
@@ -281,21 +289,21 @@ const App: React.FC = () => {
               </div>
 
               <div className="space-y-8">
-                {APP_VERSIONS.map((v, i) => (
+                {sortedVersions.map((v, i) => (
                   <div
                     key={i}
                     className="relative pl-8 border-l border-slate-200"
                   >
                     <div
-                      className={`absolute left-[-6px] top-0 w-3 h-3 rounded-full border-2 ${i === 0 ? "bg-blue-600 border-blue-600 shadow-lg shadow-blue-500/50" : "bg-white border-slate-300"}`}
+                      className={`absolute left-[-6px] top-0 w-3 h-3 rounded-full border-2 ${v.version === LATEST_VERSION.version ? "bg-blue-600 border-blue-600 shadow-lg shadow-blue-500/50" : "bg-white border-slate-300"}`}
                     ></div>
                     <div className="flex items-center gap-2 mb-2">
                       <span
-                        className={`text-sm font-black ${i === 0 ? "text-blue-600" : "text-slate-800"}`}
+                        className={`text-sm font-black ${v.version === LATEST_VERSION.version ? "text-blue-600" : "text-slate-800"}`}
                       >
                         v{v.version}
                       </span>
-                      {i === 0 && (
+                      {v.version === LATEST_VERSION.version && (
                         <span className="bg-blue-100 text-blue-700 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide">
                           Latest
                         </span>
@@ -393,8 +401,15 @@ const App: React.FC = () => {
         )}
       </GlassCard>
 
-      {/* Auto-popup What's New Modal */}
+      {/* Global Overlays */}
       {showWhatsNew && <WhatsNewModal onClose={handleCloseWhatsNew} />}
+      {showWrapUp && (
+        <WrapUpModal
+          grades={grades}
+          units={units}
+          onClose={() => setShowWrapUp(false)}
+        />
+      )}
 
       {isModalOpen && (
         <StatusModal

@@ -4,9 +4,13 @@ import {
   IoTrophy,
   IoStar,
   IoTrendingUp,
-  IoRocket,
   IoHeart,
   IoSparkles,
+  IoChevronForward,
+  IoChevronBack,
+  IoSchool,
+  IoFlame,
+  IoStatsChart,
 } from "react-icons/io5";
 import { Grade } from "../types";
 import { useAcademicStats } from "../hooks/useAcademicStats";
@@ -23,28 +27,21 @@ export const WrapUpModal: React.FC<WrapUpModalProps> = ({
   units,
   onClose,
 }) => {
-  const { groupedGrades, calculateGWA, distinctions } = useAcademicStats(
-    grades,
-    units,
-  );
+  const { groupedGrades, calculateGWA, distinctions, overallStats } =
+    useAcademicStats(grades, units);
+
+  const [currentSlide, setCurrentSlide] = useState(0);
   const [showConfetti, setShowConfetti] = useState(false);
 
-  // Trigger confetti on mount
-  useEffect(() => {
-    const t = setTimeout(() => setShowConfetti(true), 500);
-    return () => clearTimeout(t);
-  }, []);
-
+  // Stats Logic
   const stats = useMemo(() => {
     let presidentsList = 0;
     let deansList = 0;
 
-    // 1. Calculate Awards Count (President's/Dean's List per Semester)
     Object.entries(groupedGrades).forEach(([_, items]) => {
-      const gwaStr = calculateGWA(items, units, false); // Strict calculation
+      const gwaStr = calculateGWA(items, units, false);
       if (gwaStr !== "---") {
         const gwa = parseFloat(gwaStr);
-        // Ensure no disqualifying grades (usually > 2.4 or > 3.0 depending on handbook, using 2.4 safe limit for PL/DL)
         const hasLowGrade = items.some((g) => {
           const v = parseFloat(g.grade);
           return !isNaN(v) && v > 2.4;
@@ -57,59 +54,161 @@ export const WrapUpModal: React.FC<WrapUpModalProps> = ({
       }
     });
 
-    // 2. Highs and Lows
-    let highestGradeVal = 5.0; // Numerically high (e.g. 5.0 is bad)
-    let lowestGradeVal = 0; // Numerically low (e.g. 1.0 is good)
-    let highestGradeSubject = "N/A";
-    let lowestGradeSubject = "N/A"; // "Lowest" here refers to the lowest numerical value (Best Grade)
-    let worstGradeSubject = "N/A"; // "Worst" refers to highest numerical value
-
     const validGrades = grades.filter((g) => !isNaN(parseFloat(g.grade)));
-
-    // Find BEST grade (Numerically Lowest, e.g. 1.0)
-    validGrades.forEach((g) => {
-      const val = parseFloat(g.grade);
-      // Check for best grade (min value)
-      if (val > 0 && (lowestGradeVal === 0 || val < lowestGradeVal)) {
-        lowestGradeVal = val;
-        lowestGradeSubject = g.subject;
-      }
-    });
-
-    // Find WORST grade (Numerically Highest, e.g. 3.0 or 5.0)
-    validGrades.forEach((g) => {
-      const val = parseFloat(g.grade);
-      if (val > 0 && (highestGradeVal === 5.0 || val > highestGradeVal)) {
-        // Logic fix: initialize tracking properly
-        // Actually, just sorting is safer
-      }
-    });
-
-    // Sort to be sure
     const sorted = [...validGrades].sort(
       (a, b) => parseFloat(a.grade) - parseFloat(b.grade),
     );
-    if (sorted.length > 0) {
-      const best = sorted[0];
-      const worst = sorted[sorted.length - 1];
-
-      lowestGradeVal = parseFloat(best.grade);
-      lowestGradeSubject = best.subject;
-
-      highestGradeVal = parseFloat(worst.grade);
-      worstGradeSubject = worst.subject;
-    }
 
     return {
       presidentsList,
       deansList,
       consecutiveAwards: distinctions.length,
-      bestGrade: { val: lowestGradeVal, subj: lowestGradeSubject },
-      worstGrade: { val: highestGradeVal, subj: worstGradeSubject },
+      bestGrade:
+        sorted.length > 0
+          ? { val: parseFloat(sorted[0].grade), subj: sorted[0].subject }
+          : { val: 0, subj: "N/A" },
+      worstGrade:
+        sorted.length > 0
+          ? {
+              val: parseFloat(sorted[sorted.length - 1].grade),
+              subj: sorted[sorted.length - 1].subject,
+            }
+          : { val: 0, subj: "N/A" },
+      totalSubjects: validGrades.length,
     };
-  }, [groupedGrades, calculateGWA, distinctions, grades]);
+  }, [groupedGrades, calculateGWA, distinctions, grades, units]);
 
-  const getEncouragement = (worstGrade: number) => {
+  const slides = [
+    {
+      id: "intro",
+      title: "Academic Recap",
+      subtitle: "Your journey by the numbers.",
+      icon: <IoSparkles className="text-yellow-400" />,
+      content: (
+        <div className="flex flex-col items-center justify-center space-y-4 py-8">
+          <div className="w-24 h-24 rounded-full bg-indigo-600/20 flex items-center justify-center border border-indigo-500/30 animate-bounce">
+            <IoSchool size={48} className="text-indigo-400" />
+          </div>
+          <div className="text-center">
+            <div className="text-4xl font-black text-white">
+              {stats.totalSubjects}
+            </div>
+            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em]">
+              Subjects Conquered
+            </div>
+          </div>
+        </div>
+      ),
+    },
+    {
+      id: "awards",
+      title: "Hall of Fame",
+      subtitle: "The recognition you earned.",
+      icon: <IoTrophy className="text-amber-400" />,
+      content: (
+        <div className="space-y-4 py-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-white/5 rounded-2xl p-4 border border-white/10 text-center">
+              <IoTrophy className="text-yellow-400 mx-auto mb-2" size={24} />
+              <div className="text-2xl font-black text-white">
+                {stats.presidentsList}
+              </div>
+              <div className="text-[9px] font-bold text-slate-400 uppercase">
+                President's List
+              </div>
+            </div>
+            <div className="bg-white/5 rounded-2xl p-4 border border-white/10 text-center">
+              <IoStar className="text-blue-400 mx-auto mb-2" size={24} />
+              <div className="text-2xl font-black text-white">
+                {stats.deansList}
+              </div>
+              <div className="text-[9px] font-bold text-slate-400 uppercase">
+                Dean's List
+              </div>
+            </div>
+          </div>
+          {stats.consecutiveAwards > 0 && (
+            <div className="bg-amber-500/10 rounded-2xl p-4 border border-amber-500/20 flex items-center gap-4">
+              <IoFlame className="text-amber-500" size={24} />
+              <div className="text-left">
+                <div className="text-lg font-black text-amber-100">
+                  {stats.consecutiveAwards}x Streak
+                </div>
+                <div className="text-[9px] text-amber-200/60 font-bold uppercase">
+                  Consecutive Honors
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      ),
+    },
+    {
+      id: "highlights",
+      title: "The Highlights",
+      subtitle: "Peaks and valleys of the sem.",
+      icon: <IoStatsChart className="text-emerald-400" />,
+      content: (
+        <div className="space-y-3 py-4">
+          <div className="flex items-center gap-4 p-4 rounded-2xl bg-emerald-500/5 border border-emerald-500/20">
+            <div className="w-12 h-12 rounded-xl bg-emerald-500 text-white flex items-center justify-center font-black text-lg shadow-lg shadow-emerald-500/20">
+              {stats.bestGrade.val.toFixed(1)}
+            </div>
+            <div className="text-left min-w-0">
+              <div className="text-[10px] font-black text-emerald-500 uppercase tracking-wider">
+                Highest Achievement
+              </div>
+              <div className="text-xs text-white font-medium truncate">
+                {stats.bestGrade.subj}
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-4 p-4 rounded-2xl bg-rose-500/5 border border-rose-500/20">
+            <div className="w-12 h-12 rounded-xl bg-rose-500 text-white flex items-center justify-center font-black text-lg shadow-lg shadow-rose-500/20">
+              {stats.worstGrade.val.toFixed(1)}
+            </div>
+            <div className="text-left min-w-0">
+              <div className="text-[10px] font-black text-rose-400 uppercase tracking-wider">
+                Lowest Point
+              </div>
+              <div className="text-xs text-white font-medium truncate">
+                {stats.worstGrade.subj}
+              </div>
+            </div>
+          </div>
+        </div>
+      ),
+    },
+    {
+      id: "final",
+      title: "Keep Going",
+      subtitle: "A message for you.",
+      icon: <IoHeart className="text-rose-400" />,
+      content: (
+        <div className="flex flex-col items-center justify-center py-6 text-center">
+          <div className="p-6 rounded-[2rem] bg-indigo-600 text-white shadow-xl shadow-indigo-600/30 relative">
+            <IoHeart
+              className="absolute -top-3 -right-3 text-rose-400 animate-ping"
+              size={24}
+            />
+            <p className="text-sm font-bold leading-relaxed italic">
+              "{getEncouragement(stats.worstGrade.val)}"
+            </p>
+          </div>
+          <div className="mt-8">
+            <div className="text-[10px] font-black text-slate-500 uppercase tracking-[0.3em] mb-1">
+              Current GWA
+            </div>
+            <div className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-fuchsia-400">
+              {overallStats.totalGWA}
+            </div>
+          </div>
+        </div>
+      ),
+    },
+  ];
+
+  function getEncouragement(worstGrade: number) {
     if (worstGrade <= 1.5)
       return "Unstoppable! Even your 'lowest' is a dream for many.";
     if (worstGrade <= 2.0)
@@ -119,154 +218,110 @@ export const WrapUpModal: React.FC<WrapUpModalProps> = ({
     if (worstGrade <= 3.0)
       return "Diamonds are made under pressure. Keep pushing!";
     return "Grades don't define you. Your resilience does. Bounce back stronger!";
+  }
+
+  const handleNext = () => {
+    if (currentSlide < slides.length - 1) {
+      setCurrentSlide((prev) => prev + 1);
+    } else {
+      onClose();
+    }
   };
 
-  const confettiConfig = {
-    angle: 90,
-    spread: 360,
-    startVelocity: 40,
-    elementCount: 70,
-    dragFriction: 0.12,
-    duration: 3000,
-    stagger: 3,
-    width: "10px",
-    height: "10px",
-    perspective: "500px",
-    colors: ["#a864fd", "#29cdff", "#78ff44", "#ff718d", "#fdff6a"],
+  const handlePrev = () => {
+    if (currentSlide > 0) setCurrentSlide((prev) => prev - 1);
   };
+
+  useEffect(() => {
+    if (currentSlide === slides.length - 1) {
+      const t = setTimeout(() => setShowConfetti(true), 300);
+      return () => clearTimeout(t);
+    } else {
+      setShowConfetti(false);
+    }
+  }, [currentSlide, slides.length]);
 
   return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/80 backdrop-blur-xl p-4 animate-in fade-in duration-500">
+    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/90 backdrop-blur-2xl p-4 animate-in fade-in duration-500">
       <div className="relative w-full max-w-sm">
-        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
-          <Confetti active={showConfetti} config={confettiConfig} />
+        {/* Progress Bars */}
+        <div className="absolute top-0 left-0 right-0 flex gap-1.5 px-2 z-20">
+          {slides.map((_, i) => (
+            <div
+              key={i}
+              className="h-1 flex-1 bg-white/10 rounded-full overflow-hidden"
+            >
+              <div
+                className={`h-full bg-white transition-all duration-300 ${i <= currentSlide ? "opacity-100" : "opacity-0"}`}
+                style={{
+                  width:
+                    i === currentSlide
+                      ? "100%"
+                      : i < currentSlide
+                        ? "100%"
+                        : "0%",
+                }}
+              />
+            </div>
+          ))}
         </div>
 
-        {/* Card Container */}
-        <div className="bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 rounded-[32px] overflow-hidden shadow-2xl border border-white/10 relative animate-in zoom-in-95 duration-500 delay-100">
-          {/* Decorative Globs */}
-          <div className="absolute top-[-20%] right-[-20%] w-60 h-60 bg-indigo-500/30 rounded-full blur-[80px] pointer-events-none animate-pulse"></div>
-          <div className="absolute bottom-[-10%] left-[-10%] w-40 h-40 bg-fuchsia-500/20 rounded-full blur-[60px] pointer-events-none"></div>
+        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-30 pointer-events-none">
+          <Confetti
+            active={showConfetti}
+            config={{ elementCount: 100, spread: 360, startVelocity: 40 }}
+          />
+        </div>
+
+        <div className="bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 rounded-[32px] overflow-hidden shadow-2xl border border-white/10 relative min-h-[500px] flex flex-col">
+          {/* Decorative Background */}
+          <div className="absolute top-[-20%] right-[-20%] w-60 h-60 bg-indigo-500/20 rounded-full blur-[80px] pointer-events-none animate-pulse"></div>
 
           {/* Header */}
-          <div className="relative z-10 p-8 text-center border-b border-white/5">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 backdrop-blur-md border border-white/20 mb-4">
-              <IoSparkles className="text-yellow-400" size={12} />
+          <div className="relative z-10 p-8 text-center pb-4">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 backdrop-blur-md border border-white/10 mb-4">
+              {slides[currentSlide].icon}
               <span className="text-[10px] font-black text-white uppercase tracking-widest">
-                BU Wrap-Up
+                {slides[currentSlide].id === "final" ? "Conclusion" : "Recap"}
               </span>
             </div>
-            <h2 className="text-3xl font-black text-white leading-none tracking-tight mb-2">
-              Academic
-              <br />
-              Recap
+            <h2 className="text-3xl font-black text-white leading-tight tracking-tight">
+              {slides[currentSlide].title}
             </h2>
-            <p className="text-indigo-200 text-xs font-medium">
-              Your journey by the numbers.
+            <p className="text-indigo-200/60 text-xs font-medium mt-1">
+              {slides[currentSlide].subtitle}
             </p>
           </div>
 
-          {/* Content */}
-          <div className="relative z-10 p-6 space-y-6">
-            {/* Awards Grid */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="bg-white/5 backdrop-blur-md rounded-2xl p-4 border border-white/10 flex flex-col items-center justify-center text-center">
-                <IoTrophy className="text-yellow-400 mb-2" size={24} />
-                <div className="text-2xl font-black text-white">
-                  {stats.presidentsList}
-                </div>
-                <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
-                  President's List
-                </div>
-              </div>
-              <div className="bg-white/5 backdrop-blur-md rounded-2xl p-4 border border-white/10 flex flex-col items-center justify-center text-center">
-                <IoStar className="text-blue-400 mb-2" size={24} />
-                <div className="text-2xl font-black text-white">
-                  {stats.deansList}
-                </div>
-                <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
-                  Dean's List
-                </div>
-              </div>
-            </div>
-
-            {/* Consecutive */}
-            {stats.consecutiveAwards > 0 && (
-              <div className="bg-gradient-to-r from-amber-500/20 to-orange-600/20 backdrop-blur-md rounded-2xl p-4 border border-amber-500/30 flex items-center gap-4">
-                <div className="w-12 h-12 rounded-full bg-amber-500 text-white flex items-center justify-center shadow-lg shadow-amber-500/30 shrink-0">
-                  <IoTrendingUp size={24} />
-                </div>
-                <div>
-                  <div className="text-xl font-black text-amber-100">
-                    {stats.consecutiveAwards}x Streak
-                  </div>
-                  <div className="text-[10px] text-amber-200/80 font-bold uppercase tracking-wider">
-                    Consecutive Awards
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Best & Worst */}
-            <div className="space-y-3">
-              <div className="flex items-center gap-4 p-3 rounded-2xl bg-white/5 border border-white/5">
-                <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
-                  <span className="font-black text-sm">
-                    {stats.bestGrade.val}
-                  </span>
-                </div>
-                <div className="min-w-0">
-                  <div className="text-[10px] font-bold text-emerald-500 uppercase tracking-wider mb-0.5">
-                    Highest Grade
-                  </div>
-                  <div className="text-xs text-white font-medium truncate">
-                    {stats.bestGrade.subj}
-                  </div>
-                </div>
-              </div>
-              <div className="flex items-center gap-4 p-3 rounded-2xl bg-white/5 border border-white/5">
-                <div className="w-10 h-10 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center shrink-0">
-                  <span className="font-black text-sm">
-                    {stats.worstGrade.val}
-                  </span>
-                </div>
-                <div className="min-w-0">
-                  <div className="text-[10px] font-bold text-rose-400 uppercase tracking-wider mb-0.5">
-                    Lowest Grade
-                  </div>
-                  <div className="text-xs text-white font-medium truncate">
-                    {stats.worstGrade.subj}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Motivation */}
-            <div className="p-4 rounded-2xl bg-indigo-600 text-white text-center shadow-lg shadow-indigo-600/30">
-              <div className="mb-2 inline-block">
-                <IoHeart className="animate-pulse" />
-              </div>
-              <p className="text-xs font-bold leading-relaxed opacity-90">
-                "{getEncouragement(stats.worstGrade.val)}"
-              </p>
-            </div>
+          {/* Dynamic Content Area */}
+          <div className="relative z-10 p-6 flex-1 flex flex-col justify-center animate-in slide-in-from-right-4 duration-300 key={currentSlide}">
+            {slides[currentSlide].content}
           </div>
 
-          {/* Footer */}
-          <div className="p-4 bg-black/20 text-center">
+          {/* Controls */}
+          <div className="relative z-10 p-6 pt-0 flex items-center justify-between gap-4">
             <button
-              onClick={onClose}
-              className="text-xs font-bold text-slate-400 hover:text-white transition-colors uppercase tracking-widest"
+              onClick={handlePrev}
+              disabled={currentSlide === 0}
+              className={`p-4 rounded-2xl border border-white/10 transition-all ${currentSlide === 0 ? "opacity-0 pointer-events-none" : "bg-white/5 text-white hover:bg-white/10"}`}
             >
-              Close Wrap-Up
+              <IoChevronBack size={20} />
+            </button>
+
+            <button
+              onClick={handleNext}
+              className="flex-1 py-4 bg-white text-indigo-950 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-indigo-50 active:scale-[0.98] transition-all flex items-center justify-center gap-2 shadow-xl shadow-white/10"
+            >
+              {currentSlide === slides.length - 1 ? "Finish" : "Next"}
+              {currentSlide !== slides.length - 1 && <IoChevronForward />}
             </button>
           </div>
         </div>
 
-        {/* External Close Button */}
+        {/* External Close */}
         <button
           onClick={onClose}
-          className="absolute -top-12 right-0 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center backdrop-blur-md transition-all"
+          className="absolute -top-14 right-0 w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 text-white flex items-center justify-center backdrop-blur-md transition-all border border-white/10"
         >
           <IoClose size={20} />
         </button>
