@@ -1,8 +1,24 @@
 export const APP_VERSIONS = [
   {
+    version: "1.0.2",
+    title: "Visual Polish & Stability",
+    date: "2024-06-15",
+    features: [
+      {
+        label: "UI/UX",
+        desc: "Enhanced mobile responsiveness for smaller viewports.",
+      },
+      {
+        label: "System",
+        desc: "Improved error recovery for network timeouts.",
+      },
+      { label: "Visuals", desc: "Smoother animations for the Wrap-Up modal." },
+    ],
+  },
+  {
     version: "1.0.1",
     title: "Speed, Security & Features Update",
-    date: "2024-05-20", // Approximate release date for sorting
+    date: "2024-05-20",
     features: [
       {
         label: "Speed",

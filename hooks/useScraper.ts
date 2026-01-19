@@ -9,6 +9,46 @@ export interface ServerNode {
   latency?: number;
 }
 
+// Helper to humanize errors
+const getUserFriendlyError = (error: string): string => {
+  const e = error.toLowerCase();
+
+  if (
+    e.includes("failed to fetch") ||
+    e.includes("networkerror") ||
+    e.includes("connection refused")
+  ) {
+    return "Unable to connect to the server. Please check your internet connection or try refreshing the browser.";
+  }
+  if (e.includes("security check") || e.includes("captcha")) {
+    return "Security verification expired. Please refresh the page and try again.";
+  }
+  if (e.includes("timeout") || e.includes("timed out")) {
+    return "The university portal is taking too long to respond. Please try again later.";
+  }
+  if (e.includes("invalid credentials") || e.includes("login failed")) {
+    return "Invalid Student ID or Password. Please check your inputs.";
+  }
+  if (e.includes("json") || e.includes("syntaxerror")) {
+    return "Received incomplete data. The server might be overloaded. Please try again.";
+  }
+  if (e.includes("server is busy") || e.includes("503")) {
+    return "The server is currently full. Please wait a moment and try again.";
+  }
+
+  // Clean up JSON-like strings if they leak through
+  if (error.trim().startsWith("{") && error.includes("error")) {
+    try {
+      const parsed = JSON.parse(error);
+      return parsed.error || "An unexpected error occurred.";
+    } catch {
+      return "An unexpected error occurred.";
+    }
+  }
+
+  return error;
+};
+
 export const useScraper = () => {
   const [status, setStatus] = useState<AppStatus>(AppStatus.IDLE);
   const [grades, setGrades] = useState<Grade[]>([]);
@@ -40,7 +80,7 @@ export const useScraper = () => {
         acc[normKey] = SUBJECT_UNITS[key];
         return acc;
       },
-      {} as Record<string, string>
+      {} as Record<string, string>,
     );
 
     data.forEach((g: Grade) => {
@@ -58,8 +98,6 @@ export const useScraper = () => {
       else if (normalizedSubjectMap[subjectNameLower]) {
         initialUnits[key] = normalizedSubjectMap[subjectNameLower];
       }
-      // Note: We do NOT fuzzy match recklessly to avoid incorrect credit assignment.
-      // We only apply credits if the subject matches the dictionary definition.
     });
 
     setUnits(initialUnits);
@@ -113,17 +151,14 @@ export const useScraper = () => {
       }
     } catch (e) {}
 
-    return {
-      url: BACKEND_URLS[0] || "",
-      name: "Cloud Node (Unverified)",
-      latency: undefined,
-    };
+    // If we reach here, no servers are reachable
+    throw new Error("Unable to reach any server. Please refresh the browser.");
   };
 
   const loginAndScrape = async (
     id: string,
     pass: string,
-    captchaToken: string | null
+    captchaToken: string | null,
   ) => {
     setStatus(AppStatus.LOADING);
     setErrorMessage("");
@@ -138,7 +173,13 @@ export const useScraper = () => {
         throw new Error("Please complete the security check (CAPTCHA).");
       }
 
-      const server = await connectToServer();
+      let server: ServerNode;
+      try {
+        server = await connectToServer();
+      } catch (connErr) {
+        throw new Error("Connection failed. Please refresh the browser.");
+      }
+
       setActiveServer(server);
 
       const endpoint = `${server.url}/api/scrape`;
@@ -217,14 +258,12 @@ export const useScraper = () => {
           }
         }
       }
+      // If loop finishes without success or error
       throw new Error("Server connection closed unexpectedly.");
     } catch (err: any) {
       console.error(err);
-      let msg = err.message;
-      if (!msg || msg === "Failed to fetch") {
-        msg = "Connection dropped. Please try again.";
-      }
-      setErrorMessage(msg);
+      const friendlyMsg = getUserFriendlyError(err.message || "Unknown error");
+      setErrorMessage(friendlyMsg);
       setStatus(AppStatus.ERROR);
       setIsModalOpen(false);
     }

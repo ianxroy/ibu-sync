@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import chromium from "@sparticuz/chromium";
 import puppeteer from "puppeteer-core";
+import fs from "fs";
 
 // ---------------------------------------------------------------------------
 // CONFIGURATION
@@ -96,8 +97,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
       ];
       // @ts-ignore
-      executablePath =
-        localPaths.find((p) => require("fs").existsSync(p)) || "";
+      executablePath = localPaths.find((p) => fs.existsSync(p)) || "";
     } else {
       // Vercel Production
       executablePath = await chromium.executablePath();

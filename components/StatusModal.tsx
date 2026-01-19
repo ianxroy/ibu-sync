@@ -5,6 +5,7 @@ import {
   IoCheckmarkCircle,
   IoServerOutline,
   IoFlashOutline,
+  IoRefreshOutline,
 } from "react-icons/io5";
 import { ServerNode } from "../hooks/useScraper";
 import { formatDuration } from "../utils/helpers";
@@ -23,8 +24,8 @@ export const StatusModal: React.FC<StatusModalProps> = ({
   activeServer,
 }) => {
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/70 backdrop-blur-md p-4">
-      <div className="bg-white rounded-[2rem] p-8 max-w-xs w-full text-center shadow-2xl">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/70 backdrop-blur-md p-4 animate-in fade-in duration-300">
+      <div className="bg-white rounded-[2rem] p-8 max-w-xs w-full text-center shadow-2xl animate-in zoom-in-95 duration-300">
         <div className="relative w-20 h-20 mx-auto mb-6">
           <div className="absolute inset-0 border-4 border-blue-50 rounded-full"></div>
           <div className="absolute inset-0 border-4 border-blue-600 rounded-full border-t-transparent animate-spin"></div>
@@ -50,6 +51,24 @@ export const StatusModal: React.FC<StatusModalProps> = ({
             {statusMessage}
           </p>
         </div>
+
+        {/* Long Wait Hint */}
+        {elapsedTime > 15 && (
+          <div className="mb-6 p-3 bg-amber-50 rounded-xl border border-amber-100 flex items-start gap-2 text-left animate-in slide-in-from-top-2">
+            <IoRefreshOutline className="text-amber-500 shrink-0 mt-0.5" />
+            <p className="text-[10px] text-amber-700 font-medium leading-tight">
+              Taking longer than usual? Try{" "}
+              <span
+                className="font-bold underline cursor-pointer"
+                onClick={() => window.location.reload()}
+              >
+                refreshing
+              </span>{" "}
+              the page if it gets stuck.
+            </p>
+          </div>
+        )}
+
         <div className="space-y-3">
           <Step
             label="Queue / Connect"

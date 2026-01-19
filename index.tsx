@@ -9,7 +9,7 @@ if (!rootElement) {
 }
 
 // Get the key from env
-const SITE_KEY = import.meta.env.VITE_RECAPTCHA_SITE_KEY;
+const SITE_KEY = (import.meta as any).env.VITE_RECAPTCHA_SITE_KEY;
 
 const root = ReactDOM.createRoot(rootElement);
 root.render(
@@ -25,5 +25,5 @@ root.render(
     >
       <App />
     </GoogleReCaptchaProvider>
-  </React.StrictMode>
+  </React.StrictMode>,
 );
