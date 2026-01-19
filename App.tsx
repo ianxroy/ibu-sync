@@ -13,6 +13,8 @@ import {
   IoGitBranchOutline,
   IoCheckmarkDone,
   IoFileTrayFullOutline,
+  IoSparkles,
+  IoClose,
 } from "react-icons/io5";
 import { GlassCard } from "./components/ui/GlassCard";
 import { Sidebar } from "./components/Sidebar";
@@ -33,6 +35,8 @@ const App: React.FC = () => {
   const [showVersions, setShowVersions] = useState<boolean>(false);
   const [showWhatsNew, setShowWhatsNew] = useState<boolean>(false);
   const [showWrapUp, setShowWrapUp] = useState<boolean>(false);
+  const [showWrapUpInstruction, setShowWrapUpInstruction] =
+    useState<boolean>(false);
   const [feedbackMsg, setFeedbackMsg] = useState<string>("");
   const [isSubmittingFeedback, setIsSubmittingFeedback] =
     useState<boolean>(false);
@@ -72,24 +76,43 @@ const App: React.FC = () => {
     checkWhatsNew();
   }, []);
 
-  // Logic for Auto-Popup (Wrap Up) - Moved from Dashboard
+  // Logic for Auto-Popup (Wrap Up) - Persisted per Student ID
   useEffect(() => {
     if (
       status === AppStatus.SUCCESS &&
       grades.length > 0 &&
+      studentId &&
       !hasShownWrapUpRef.current
     ) {
-      const timer = setTimeout(() => {
-        setShowWrapUp(true);
+      const storageKey = `ibu_wrapup_seen_${studentId}`;
+      const hasSeen = localStorage.getItem(storageKey);
+
+      if (!hasSeen) {
+        // First time seeing it for this ID
+        const timer = setTimeout(() => {
+          setShowWrapUp(true);
+          hasShownWrapUpRef.current = true;
+          localStorage.setItem(storageKey, "true");
+        }, 1500);
+        return () => clearTimeout(timer);
+      } else {
+        // Already seen, just show the instruction toast
         hasShownWrapUpRef.current = true;
-      }, 1500);
-      return () => clearTimeout(timer);
+        const timer = setTimeout(() => {
+          setShowWrapUpInstruction(true);
+          // Auto-hide instruction after 6 seconds
+          setTimeout(() => setShowWrapUpInstruction(false), 6000);
+        }, 1500);
+        return () => clearTimeout(timer);
+      }
     }
+
     if (status === AppStatus.IDLE) {
       hasShownWrapUpRef.current = false;
       setShowWrapUp(false);
+      setShowWrapUpInstruction(false);
     }
-  }, [status, grades.length]);
+  }, [status, grades.length, studentId]);
 
   const handleCloseWhatsNew = () => {
     setShowWhatsNew(false);
@@ -147,6 +170,7 @@ const App: React.FC = () => {
     setStudentId("");
     setFormKey((p) => p + 1);
     setShowWrapUp(false);
+    setShowWrapUpInstruction(false);
   };
 
   return (
@@ -175,6 +199,32 @@ const App: React.FC = () => {
           onReset={handleReset}
           onTriggerWrapUp={() => setShowWrapUp(true)}
         />
+
+        {/* --- TOAST INSTRUCTION --- */}
+        {showWrapUpInstruction && (
+          <div className="absolute top-6 left-1/2 -translate-x-1/2 md:left-auto md:translate-x-0 md:right-6 z-50 animate-in slide-in-from-top-4 fade-in duration-700">
+            <div className="bg-white/90 backdrop-blur-xl border border-white/60 shadow-xl rounded-2xl p-4 flex items-center gap-3 max-w-[280px]">
+              <div className="bg-gradient-to-br from-indigo-500 to-purple-500 p-2 rounded-xl text-white shadow-md">
+                <IoSparkles size={16} />
+              </div>
+              <div className="flex-1">
+                <h4 className="text-[10px] font-black uppercase text-indigo-600 tracking-wide mb-0.5">
+                  View it again
+                </h4>
+                <p className="text-xs font-medium text-slate-600 leading-tight">
+                  Click the <strong>Wrap Up</strong> button on your dashboard to
+                  see your stats.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowWrapUpInstruction(false)}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <IoClose size={16} />
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* --- MODALS --- */}
 
@@ -445,7 +495,14 @@ const App: React.FC = () => {
         <WrapUpModal
           grades={grades}
           units={units}
-          onClose={() => setShowWrapUp(false)}
+          onClose={() => {
+            setShowWrapUp(false);
+            // Show instruction briefly after closing the modal for the first time
+            setTimeout(() => {
+              setShowWrapUpInstruction(true);
+              setTimeout(() => setShowWrapUpInstruction(false), 5000);
+            }, 500);
+          }}
         />
       )}
 

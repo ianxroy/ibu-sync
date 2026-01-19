@@ -15,9 +15,11 @@ import {
   IoChevronForward,
   IoSyncOutline,
   IoSparklesOutline,
+  IoStatsChart,
 } from "react-icons/io5";
 import { AppStatus, Grade } from "../types";
 import { useAcademicStats } from "../hooks/useAcademicStats";
+import { AcademicChart } from "./AcademicChart";
 
 interface DashboardProps {
   status: AppStatus;
@@ -181,6 +183,28 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 GWA: {overallStats.bestGWA}
               </div>
             </div>
+          </div>
+
+          {/* GWA Trend Chart - NEW SECTION */}
+          <div className="bg-white/50 backdrop-blur-md border border-white/60 rounded-[24px] p-6 shadow-sm">
+            <div className="flex items-center gap-2 mb-4">
+              <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
+                <IoStatsChart size={18} />
+              </div>
+              <div>
+                <h3 className="text-sm font-black text-slate-800">
+                  Performance Trend
+                </h3>
+                <p className="text-[10px] font-medium text-slate-500">
+                  Your GWA over time (Higher is Better).
+                </p>
+              </div>
+            </div>
+            <AcademicChart
+              sortedEntries={sortedSemesterEntries}
+              units={units}
+              calculateGWA={calculateGWA}
+            />
           </div>
 
           {/* Latin Honor Forecast Section */}
