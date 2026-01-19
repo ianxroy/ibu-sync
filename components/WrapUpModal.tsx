@@ -17,13 +17,33 @@ import {
 } from "react-icons/io5";
 import { Grade } from "../types";
 import { useAcademicStats } from "../hooks/useAcademicStats";
-import Confetti from "react-dom-confetti";
+import Confetti from "react-confetti";
 
 interface WrapUpModalProps {
   grades: Grade[];
   units: Record<string, string>;
   onClose: () => void;
 }
+
+// Hook to get window size for Confetti
+const useWindowSize = () => {
+  const [windowSize, setWindowSize] = useState({
+    width: window.innerWidth,
+    height: window.innerHeight,
+  });
+
+  useEffect(() => {
+    const handleResize = () => {
+      setWindowSize({
+        width: window.innerWidth,
+        height: window.innerHeight,
+      });
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+  return windowSize;
+};
 
 export const WrapUpModal: React.FC<WrapUpModalProps> = ({
   grades,
@@ -35,6 +55,7 @@ export const WrapUpModal: React.FC<WrapUpModalProps> = ({
 
   const [currentSlide, setCurrentSlide] = useState(0);
   const [showConfetti, setShowConfetti] = useState(false);
+  const { width, height } = useWindowSize();
 
   const stats = useMemo(() => {
     let presidentsList = 0;
@@ -288,7 +309,19 @@ export const WrapUpModal: React.FC<WrapUpModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/95 backdrop-blur-3xl p-4 animate-in fade-in duration-700">
-      <div className="relative w-full max-w-sm">
+      <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
+        {showConfetti && (
+          <Confetti
+            width={width}
+            height={height}
+            recycle={false}
+            numberOfPieces={600}
+            gravity={0.15}
+          />
+        )}
+      </div>
+
+      <div className="relative w-full max-w-sm z-10">
         {/* Progress System */}
         <div className="absolute top-0 left-0 right-0 flex gap-2 px-4 z-20">
           {slides.map((_, i) => (
@@ -309,13 +342,6 @@ export const WrapUpModal: React.FC<WrapUpModalProps> = ({
               />
             </div>
           ))}
-        </div>
-
-        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-30 pointer-events-none">
-          <Confetti
-            active={showConfetti}
-            config={{ elementCount: 150, spread: 360, startVelocity: 45 }}
-          />
         </div>
 
         <div className="bg-slate-900 rounded-[40px] overflow-hidden shadow-[0_0_50px_rgba(79,70,229,0.2)] border border-white/5 relative min-h-[520px] flex flex-col">
