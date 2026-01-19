@@ -16,10 +16,14 @@ import {
   IoSyncOutline,
   IoSparklesOutline,
   IoStatsChart,
+  IoPieChart,
+  IoSearchOutline,
+  IoCloseCircle,
 } from "react-icons/io5";
 import { AppStatus, Grade } from "../types";
 import { useAcademicStats } from "../hooks/useAcademicStats";
 import { AcademicChart } from "./AcademicChart";
+import { GradeDistributionChart } from "./GradeDistributionChart.tsx";
 
 interface DashboardProps {
   status: AppStatus;
@@ -53,6 +57,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [expandedSemesters, setExpandedSemesters] = useState<
     Record<string, boolean>
   >({});
+  const [searchTerm, setSearchTerm] = useState("");
 
   const handleUnitChange = (semester: string, subject: string, val: string) => {
     onUnitsChange({ ...units, [`${semester}-${subject}`]: val });
@@ -88,6 +93,21 @@ export const Dashboard: React.FC<DashboardProps> = ({
     link.click();
     document.body.removeChild(link);
   };
+
+  // Filter Logic
+  const filteredEntries = sortedSemesterEntries
+    .map(([sem, items]) => {
+      // If term matches semester name, show all items
+      if (sem.toLowerCase().includes(searchTerm.toLowerCase())) {
+        return [sem, items] as [string, Grade[]];
+      }
+      // Otherwise, filter items by subject name
+      const matchingItems = items.filter((item) =>
+        item.subject.toLowerCase().includes(searchTerm.toLowerCase()),
+      );
+      return [sem, matchingItems] as [string, Grade[]];
+    })
+    .filter(([_, items]) => items.length > 0);
 
   return (
     <div className="flex-1 p-6 md:p-8 bg-white/20 md:overflow-y-auto custom-scrollbar">
@@ -185,26 +205,51 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </div>
           </div>
 
-          {/* GWA Trend Chart - NEW SECTION */}
-          <div className="bg-white/50 backdrop-blur-md border border-white/60 rounded-[24px] p-6 shadow-sm">
-            <div className="flex items-center gap-2 mb-4">
-              <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
-                <IoStatsChart size={18} />
+          {/* Charts Grid - NEW LAYOUT */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* GWA Trend Chart */}
+            <div className="bg-white/50 backdrop-blur-md border border-white/60 rounded-[24px] p-6 shadow-sm flex flex-col">
+              <div className="flex items-center gap-2 mb-4">
+                <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
+                  <IoStatsChart size={18} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-slate-800">
+                    Performance Trend
+                  </h3>
+                  <p className="text-[10px] font-medium text-slate-500">
+                    Your GWA over time (Higher is Better).
+                  </p>
+                </div>
               </div>
-              <div>
-                <h3 className="text-sm font-black text-slate-800">
-                  Performance Trend
-                </h3>
-                <p className="text-[10px] font-medium text-slate-500">
-                  Your GWA over time (Higher is Better).
-                </p>
+              <div className="flex-1 min-h-0">
+                <AcademicChart
+                  sortedEntries={sortedSemesterEntries}
+                  units={units}
+                  calculateGWA={calculateGWA}
+                />
               </div>
             </div>
-            <AcademicChart
-              sortedEntries={sortedSemesterEntries}
-              units={units}
-              calculateGWA={calculateGWA}
-            />
+
+            {/* Distribution Chart - NEW COMPONENT */}
+            <div className="bg-white/50 backdrop-blur-md border border-white/60 rounded-[24px] p-6 shadow-sm flex flex-col">
+              <div className="flex items-center gap-2 mb-4">
+                <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg">
+                  <IoPieChart size={18} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-slate-800">
+                    Grade Spectrum
+                  </h3>
+                  <p className="text-[10px] font-medium text-slate-500">
+                    Distribution by grade range.
+                  </p>
+                </div>
+              </div>
+              <div className="flex-1 min-h-0">
+                <GradeDistributionChart grades={grades} />
+              </div>
+            </div>
           </div>
 
           {/* Latin Honor Forecast Section */}
@@ -348,9 +393,35 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </div>
       )}
 
+      {/* SEARCH BAR - NEW FEATURE */}
+      {status === AppStatus.SUCCESS && (
+        <div className="sticky top-0 z-20 bg-white/10 backdrop-blur-xl py-2 mb-4 -mx-2 px-2 rounded-b-2xl">
+          <div className="relative group">
+            <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors">
+              <IoSearchOutline size={18} />
+            </div>
+            <input
+              type="text"
+              placeholder="Filter by Subject or Semester..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full bg-white/70 backdrop-blur-md border border-white/60 rounded-xl pl-12 pr-10 py-3 text-sm font-bold text-slate-700 placeholder-slate-400 outline-none focus:bg-white focus:border-blue-400 focus:ring-4 focus:ring-blue-500/10 transition-all shadow-sm"
+            />
+            {searchTerm && (
+              <button
+                onClick={() => setSearchTerm("")}
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              >
+                <IoCloseCircle size={18} />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Semester Breakdown Table */}
       <div className="space-y-4">
-        {sortedSemesterEntries.map(([semester, items]) => {
+        {filteredEntries.map(([semester, items]) => {
           const semGWAStr = calculateGWA(items, units, true);
           const strictSemGWA = calculateGWA(items, units, false);
           const isSemPartial = strictSemGWA === "---" && semGWAStr !== "---";
@@ -376,6 +447,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 };
             }
           }
+
+          // Force expand if searching
+          const isExpanded = expandedSemesters[semester] || searchTerm !== "";
 
           return (
             <div
@@ -421,7 +495,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       </span>
                     )}
                   </div>
-                  {expandedSemesters[semester] ? (
+                  {isExpanded ? (
                     <IoChevronDown size={18} className="text-slate-400" />
                   ) : (
                     <IoChevronForward size={18} className="text-slate-400" />
@@ -429,7 +503,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 </div>
               </button>
 
-              {expandedSemesters[semester] && (
+              {isExpanded && (
                 <div className="px-4 pb-4 space-y-2 animate-in slide-in-from-top-2 duration-200">
                   <div className="flex text-[10px] font-bold text-slate-400 px-4 uppercase tracking-widest">
                     <div className="flex-1">Subject</div>
@@ -486,6 +560,16 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </div>
           );
         })}
+
+        {filteredEntries.length === 0 &&
+          status === AppStatus.SUCCESS &&
+          searchTerm && (
+            <div className="text-center py-10">
+              <p className="text-slate-500 font-bold">
+                No subjects found matching "{searchTerm}"
+              </p>
+            </div>
+          )}
 
         {status === AppStatus.IDLE && (
           <div className="h-[350px] flex flex-col items-center justify-center text-slate-400">
